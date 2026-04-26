@@ -41,7 +41,7 @@ PositionRegistry.sol  →  event emitted  →  frontend poll
 |---|---|---|
 | Intent API | `apps/api/src/routes/intents.ts` | CRUD for intents and plans |
 | Quote API | `apps/api/src/routes/quotes.ts` | Proxy to Uniswap Trading API |
-| Planner | `apps/api/src/services/planner.ts` | Generates ranked plans |
+| Planner | `apps/api/src/services/planner.ts` | Thin orchestration wrapper around the agent planner |
 | Quote Service | `apps/api/src/services/quote.ts` | Normalizes Uniswap responses |
 | Risk Service | `apps/api/src/services/risk.ts` | Validates plan constraints |
 | Agent | `apps/api/src/agent/index.ts` | Claude orchestrator |
@@ -50,7 +50,7 @@ PositionRegistry.sol  →  event emitted  →  frontend poll
 | Schemas | `packages/shared/src/schemas.ts` | Zod validation |
 | IntentVault | `contracts/src/IntentVault.sol` | Holds user funds, refund logic |
 | IntentExecutor | `contracts/src/IntentExecutor.sol` | Executes ordered steps |
-| RiskGuard | `contracts/src/RiskGuard.sol` | Pre/post execution checks |
+| RiskGuard | not yet implemented | Planned pre/post execution checks |
 | PositionRegistry | `contracts/src/PositionRegistry.sol` | Records resulting positions |
 
 ## Key Design Decisions
@@ -60,6 +60,8 @@ PositionRegistry.sol  →  event emitted  →  frontend poll
 **In-memory store for hackathon** — No database dependency. Intents and plans live in a Map. Swap for Postgres/Neon when deploying to production.
 
 **Mock adapters for non-Uniswap steps** — The LP step uses real Uniswap v4. If extending to borrow/bridge, mock adapters let the demo run without live Aave/Across.
+
+**Current production gap** — The web app and API are now wired end to end for the MVP, but the onchain execution path is still a simplified bundle preview and the contract layer does not yet enforce a full risk guard or vault-based settlement flow.
 
 **Base Sepolia for demo** — Low gas, Uniswap v4 deployed, fast finality. Tokens available from Base Sepolia faucet.
 

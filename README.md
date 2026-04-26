@@ -35,9 +35,11 @@ FEEDBACK.md   Uniswap API developer experience feedback (required for prize elig
 
 ```bash
 cp .env.example .env
-# fill in UNISWAP_API_KEY, RPC_BASE_SEPOLIA, ANTHROPIC_API_KEY
+# fill in UNISWAP_API_KEY, RPC_BASE_SEPOLIA, GEMINI_API_KEY
+# set CORS_ORIGIN=http://localhost:3000 for the API and NEXT_PUBLIC_API_URL=http://localhost:3001 for the web app
 
 npm install
+npm run build
 npm run dev:api    # http://localhost:3001
 npm run dev:web    # http://localhost:3000
 ```

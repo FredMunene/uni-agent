@@ -9,7 +9,7 @@ import {MockLendingAdapter} from "../src/adapters/MockLendingAdapter.sol";
 
 // Base Sepolia addresses
 address constant UNIVERSAL_ROUTER = 0x050E797f3625EC8785265e1d9BDd4799b97528A1;
-address constant V4_POSITION_MANAGER = 0x4B2C77d209D3405F41a037EC6c77F7F5b8e2ca80;
+address constant V4_POSITION_MANAGER = 0x4B2C77d209D3405F41a037Ec6c77F7F5b8e2ca80;
 
 contract Deploy is Script {
     function run() external {

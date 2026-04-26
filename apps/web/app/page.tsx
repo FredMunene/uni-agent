@@ -140,7 +140,7 @@ function StatsGrid({ plan }: { plan: Plan }) {
 export default function Page() {
   const [step, setStep] = useState<AppStep>('intent');
   const [goal, setGoal] = useState('');
-  const [amount, setAmount] = useState('100000000');
+  const [amount, setAmount] = useState('100'); // human-readable USDC
   const [risk, setRisk] = useState<'low' | 'medium' | 'high'>('low');
 
 
@@ -188,7 +188,7 @@ export default function Page() {
     const body = {
       userAddress: connectedAddress ||'0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
       inputToken: 'USDC',
-      inputAmount: amount,
+      inputAmount: String(Math.floor(Number(amount) * 1_000_000)),
       goal: goal || 'Make my USDC productive with low risk',
       risk,
       constraints: { maxSlippageBps: 50, deadlineSeconds: 900 },
@@ -266,19 +266,17 @@ export default function Page() {
 
             <div className="form-row">
               <div>
-                <label className="field-label">
-                  AMOUNT — {Number(amount) >= 1e6 ? `${(Number(amount) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 2 })} USDC` : 'enter amount'}
-                </label>
+                <label className="field-label">AMOUNT (USDC)</label>
                 <input
                   className="field-input"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
-                  inputMode="numeric"
-                  placeholder="min 10,000,000 (10 USDC)"
+                  inputMode="decimal"
+                  placeholder="e.g. 100"
                 />
-                {Number(amount) > 0 && Number(amount) < 10_000_000 && (
+                {Number(amount) > 0 && Number(amount) < 10 && (
                   <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--red)', marginTop: 4 }}>
-                    MIN 10 USDC (10000000 units)
+                    MIN 10 USDC
                   </div>
                 )}
               </div>
@@ -304,7 +302,7 @@ export default function Page() {
 
             <button
               className="btn-primary"
-              disabled={isPending || step === 'planning' || Number(amount) < 10_000_000}
+              disabled={isPending || step === 'planning' || Number(amount) < 10}
               onClick={() =>
                 startTransition(() => {
                   generatePlan().catch((e) => {

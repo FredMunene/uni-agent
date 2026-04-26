@@ -1,6 +1,8 @@
 'use client';
 
 import { useState, useTransition, useEffect, useCallback } from 'react';
+import { useAccount } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import type { Plan } from '@uni-agent/shared';
 
 // ── types ─────────────────────────────────────────────────────────────────────
@@ -149,6 +151,7 @@ export default function Page() {
 
   const [isPending, startTransition] = useTransition();
   const [planningPhase, setPlanningPhase] = useState(0);
+  const { address: connectedAddress } = useAccount();
 
   // animate planning phases
   useEffect(() => {
@@ -183,7 +186,7 @@ export default function Page() {
     setPlanningPhase(0);
 
     const body = {
-      userAddress: address || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      userAddress: connectedAddress || address || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
       inputToken: 'USDC',
       inputAmount: amount,
       goal: goal || 'Make my USDC productive with low risk',
@@ -215,7 +218,7 @@ export default function Page() {
     const res = await fetch(api(`/v1/intents/${intentId}/plans/${planId}/execute`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ permit2Signature: '0x', userAddress: address }),
+      body: JSON.stringify({ permit2Signature: '0x', userAddress: connectedAddress || address }),
     });
     if (!res.ok) throw new Error(`Execute failed ${res.status}`);
     const { executionId } = await res.json() as { executionId: string };
@@ -243,14 +246,24 @@ export default function Page() {
           </div>
           <div className="panel-body">
             <div className="address-row">
-              <label className="field-label">WALLET ADDRESS</label>
-              <input
-                className="field-input"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="0x..."
-                spellCheck={false}
-              />
+              <label className="field-label">WALLET</label>
+              <div className="connect-wrapper">
+                <ConnectButton
+                  accountStatus="address"
+                  chainStatus="none"
+                  showBalance={false}
+                />
+              </div>
+              {!connectedAddress && (
+                <input
+                  className="field-input"
+                  style={{ marginTop: 8 }}
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="or paste address manually..."
+                  spellCheck={false}
+                />
+              )}
             </div>
 
             <textarea

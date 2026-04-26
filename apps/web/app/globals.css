@@ -386,6 +386,12 @@ html, body {
 .address-row {
   margin-bottom: 16px;
 }
+.connect-wrapper button {
+  font-family: var(--mono) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.10em !important;
+  border-radius: 0 !important;
+}
 
 @media (max-width: 640px) {
   .form-row { grid-template-columns: 1fr; }

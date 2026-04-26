@@ -31,8 +31,7 @@ type Execution = {
 
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
-const api = (path: string) => `${API}${path}`;
+const api = (path: string) => `/api${path}`;
 
 function fmt(wei: string, decimals: number): string {
   if (!wei || wei === '0') return '0';

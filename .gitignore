@@ -1,0 +1,34 @@
+# environment
+.env
+.env.local
+.env.*.local
+
+# dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# builds
+dist/
+out/
+.next/
+.turbo/
+
+# foundry
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+contracts/lib/
+
+# logs
+*.log
+npm-debug.log*
+
+# editor
+.DS_Store
+.vscode/
+.idea/
+
+# test artifacts
+coverage/
+lcov.info

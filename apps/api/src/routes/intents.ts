@@ -1,10 +1,52 @@
 import type { FastifyInstance } from 'fastify';
 import { nanoid } from 'nanoid';
 import { CreateIntentSchema, ExecuteSchema } from '@uni-agent/shared';
-import type { Intent } from '@uni-agent/shared';
+import type { Intent, Plan } from '@uni-agent/shared';
 import { store } from '../store.js';
 import { generatePlansForIntent } from '../services/planner.js';
 import { validatePlan } from '../services/risk.js';
+
+function simulateExecution(executionId: string, plan: Plan) {
+  const stepTypes = plan.steps.map((s) => s.type);
+  const swapQuote = (plan.steps[0]?.estimatedAmountOut) ?? '0';
+  const usdcAmount = plan.steps[0]?.amountIn ?? plan.steps[1]?.token0AmountIn ?? '0';
+
+  // Mark each step submitted → confirmed with a delay
+  stepTypes.forEach((type, i) => {
+    setTimeout(() => {
+      const exec = store.executions.get(executionId);
+      if (!exec) return;
+      const steps = exec.steps.map((s, idx) =>
+        idx === i ? { ...s, status: 'submitted' as const, txHash: `0x${nanoid(40)}` } : s
+      );
+      store.executions.update(executionId, { steps });
+    }, (i + 1) * 2500);
+
+    setTimeout(() => {
+      const exec = store.executions.get(executionId);
+      if (!exec) return;
+      const steps = exec.steps.map((s, idx) =>
+        idx === i ? { ...s, status: 'confirmed' as const } : s
+      );
+      store.executions.update(executionId, { steps });
+    }, (i + 1) * 2500 + 2000);
+  });
+
+  // Mark completed with position after all steps
+  const completionDelay = stepTypes.length * 4500 + 1000;
+  setTimeout(() => {
+    store.executions.update(executionId, {
+      status: 'completed',
+      position: {
+        positionId: `pos_${nanoid(8)}`,
+        pool: 'USDC/WETH 0.05%',
+        token0Amount: usdcAmount,
+        token1Amount: swapQuote,
+        liquidity: String(Math.floor(Math.random() * 1e12 + 1e11)),
+      },
+    });
+  }, completionDelay);
+}
 
 export async function intentRoutes(app: FastifyInstance) {
   // Create intent
@@ -124,7 +166,9 @@ export async function intentRoutes(app: FastifyInstance) {
       createdAt: new Date().toISOString(),
     });
 
-    // TODO: submit transaction via viem walletClient + track steps
+    // Simulate execution progression for demo
+    simulateExecution(executionId, plan);
+
     return reply.status(202).send({ executionId, status: 'submitted' });
   });
 

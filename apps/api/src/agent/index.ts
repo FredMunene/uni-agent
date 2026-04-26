@@ -13,7 +13,7 @@ function getModel() {
   if (!key) throw new Error('GEMINI_API_KEY not set — check your .env file');
   const genAI = new GoogleGenerativeAI(key);
   return genAI.getGenerativeModel({
-    model: 'gemini-2.5-flash-lite',
+    model: 'gemini-2.0-flash',
     tools: [{ functionDeclarations: tools }],
     systemInstruction: `You are a DeFi strategy planner for an agentic stablecoin router.
 

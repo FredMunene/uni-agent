@@ -142,7 +142,7 @@ export default function Page() {
   const [goal, setGoal] = useState('');
   const [amount, setAmount] = useState('100000000');
   const [risk, setRisk] = useState<'low' | 'medium' | 'high'>('low');
-  const [address, setAddress] = useState('');
+
 
   const [intentId, setIntentId] = useState('');
   const [planRes, setPlanRes] = useState<PlanResponse | null>(null);
@@ -186,7 +186,7 @@ export default function Page() {
     setPlanningPhase(0);
 
     const body = {
-      userAddress: connectedAddress || address || '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+      userAddress: connectedAddress ||'0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
       inputToken: 'USDC',
       inputAmount: amount,
       goal: goal || 'Make my USDC productive with low risk',
@@ -218,7 +218,7 @@ export default function Page() {
     const res = await fetch(api(`/v1/intents/${intentId}/plans/${planId}/execute`), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ permit2Signature: '0x', userAddress: connectedAddress || address }),
+      body: JSON.stringify({ permit2Signature: '0x', userAddress: connectedAddress }),
     });
     if (!res.ok) throw new Error(`Execute failed ${res.status}`);
     const { executionId } = await res.json() as { executionId: string };
@@ -254,16 +254,6 @@ export default function Page() {
                   showBalance={false}
                 />
               </div>
-              {!connectedAddress && (
-                <input
-                  className="field-input"
-                  style={{ marginTop: 8 }}
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder="or paste address manually..."
-                  spellCheck={false}
-                />
-              )}
             </div>
 
             <textarea

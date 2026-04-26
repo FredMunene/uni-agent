@@ -18,7 +18,6 @@ out/
 contracts/out/
 contracts/cache/
 contracts/broadcast/
-contracts/lib/
 
 # logs
 *.log

@@ -18,6 +18,6 @@ export async function POST(req: Request) {
     createdAt: new Date().toISOString(),
   };
 
-  store.intents.set(intent.intentId, intent);
+  await store.intents.set(intent.intentId, intent);
   return NextResponse.json({ intentId: intent.intentId, status: intent.status }, { status: 201 });
 }

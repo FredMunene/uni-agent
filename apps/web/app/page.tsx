@@ -266,13 +266,21 @@ export default function Page() {
 
             <div className="form-row">
               <div>
-                <label className="field-label">AMOUNT (USDC UNITS)</label>
+                <label className="field-label">
+                  AMOUNT — {Number(amount) >= 1e6 ? `${(Number(amount) / 1e6).toLocaleString('en-US', { maximumFractionDigits: 2 })} USDC` : 'enter amount'}
+                </label>
                 <input
                   className="field-input"
                   value={amount}
                   onChange={(e) => setAmount(e.target.value)}
                   inputMode="numeric"
+                  placeholder="min 10,000,000 (10 USDC)"
                 />
+                {Number(amount) > 0 && Number(amount) < 10_000_000 && (
+                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--red)', marginTop: 4 }}>
+                    MIN 10 USDC (10000000 units)
+                  </div>
+                )}
               </div>
               <div>
                 <label className="field-label">RISK PROFILE</label>
@@ -296,7 +304,7 @@ export default function Page() {
 
             <button
               className="btn-primary"
-              disabled={isPending || step === 'planning'}
+              disabled={isPending || step === 'planning' || Number(amount) < 10_000_000}
               onClick={() =>
                 startTransition(() => {
                   generatePlan().catch((e) => {

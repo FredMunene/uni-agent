@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Intent } from '@uni-agent/shared';
-import { assertExecutionAuthorized } from './route';
+import { assertExecutionAuthorized, startExecution } from './route';
 
 function makeIntent(overrides: Partial<Intent> = {}): Intent {
   return {
@@ -52,4 +52,47 @@ test('assertExecutionAuthorized rejects intents that are not planned', () => {
       ),
     /not ready for execution/,
   );
+});
+
+test('startExecution marks the intent as executing and stores one execution record', async () => {
+  const intent = makeIntent();
+  const executions: Record<string, unknown> = {};
+  const updatedIntents: Intent[] = [];
+  const store = {
+    intents: {
+      get: async () => intent,
+      set: async (_id: string, next: Intent) => {
+        updatedIntents.push(next);
+      },
+    },
+    plans: {
+      get: async () => [
+        {
+          planId: 'plan_123',
+          steps: [{ type: 'swap', amountIn: '1', estimatedAmountOut: '2' }],
+        },
+      ],
+    },
+    executions: {
+      set: async (id: string, execution: unknown) => {
+        executions[id] = execution;
+      },
+    },
+  };
+
+  const outcome = await startExecution(
+    store,
+    intent.intentId,
+    'plan_123',
+    intent.userAddress,
+  );
+
+  assert.equal(outcome.ok, true);
+  assert.equal(updatedIntents.at(-1)?.status, 'executing');
+  assert.equal(Object.keys(executions).length, 1);
+
+  const execution = Object.values(executions)[0] as { intentId?: string; planId?: string; status?: string };
+  assert.equal(execution.intentId, intent.intentId);
+  assert.equal(execution.planId, 'plan_123');
+  assert.equal(execution.status, 'submitted');
 });

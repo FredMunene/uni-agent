@@ -17,36 +17,65 @@ export function assertExecutionAuthorized(
   }
 }
 
+type StoreLike = {
+  intents: {
+    get(id: string): Promise<Intent | null | undefined>;
+    set(id: string, intent: Intent): Promise<unknown>;
+  };
+  plans: {
+    get(intentId: string): Promise<unknown[]>;
+  };
+  executions: {
+    set(id: string, execution: unknown): Promise<unknown>;
+  };
+};
+
+export async function startExecution(
+  storeApi: StoreLike,
+  intentId: string,
+  planId: string,
+  userAddress: string,
+) {
+  const intent = await storeApi.intents.get(intentId);
+  if (!intent) return { ok: false as const, status: 404, error: 'Intent not found' };
+
+  try {
+    assertExecutionAuthorized(intent, userAddress);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Execution not authorized';
+    const status = message.includes('owner mismatch') ? 403 : 409;
+    return { ok: false as const, status, error: message };
+  }
+
+  const plans = await storeApi.plans.get(intentId);
+  const plan = plans?.find((p: any) => p.planId === planId);
+  if (!plan) return { ok: false as const, status: 404, error: 'Plan not found' };
+
+  const executionId = `exec_${nanoid(8)}`;
+  await storeApi.intents.set(intentId, { ...intent, status: 'executing' });
+  await storeApi.executions.set(executionId, {
+    executionId,
+    planId,
+    intentId,
+    status: 'submitted',
+    steps: plan.steps.map((s: any) => ({ type: s.type, status: 'pending' as const })),
+    createdAt: new Date().toISOString(),
+    _plan: plan,
+  });
+
+  return { ok: true as const, executionId };
+}
+
 export async function POST(req: Request, { params }: { params: Promise<{ id: string; planId: string }> }) {
   const { id, planId } = await params;
   const body = await req.json();
   const result = ExecuteSchema.safeParse(body);
   if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
 
-  const intent = await store.intents.get(id);
-  if (!intent) return NextResponse.json({ error: 'Intent not found' }, { status: 404 });
-
-  try {
-    assertExecutionAuthorized(intent, result.data.userAddress);
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Execution not authorized';
-    const status = message.includes('owner mismatch') ? 403 : 409;
-    return NextResponse.json({ error: message }, { status });
+  const outcome = await startExecution(store, id, planId, result.data.userAddress);
+  if (!outcome.ok) {
+    return NextResponse.json({ error: outcome.error }, { status: outcome.status });
   }
 
-  const plans = await store.plans.get(id);
-  const plan = plans?.find((p) => p.planId === planId);
-  if (!plan) return NextResponse.json({ error: 'Plan not found' }, { status: 404 });
-
-  const executionId = `exec_${nanoid(8)}`;
-  await store.executions.set(executionId, {
-    executionId,
-    planId,
-    status: 'submitted',
-    steps: plan.steps.map((s) => ({ type: s.type, status: 'pending' as const })),
-    createdAt: new Date().toISOString(),
-    _plan: plan,
-  } as any);
-
-  return NextResponse.json({ executionId, status: 'submitted' }, { status: 202 });
+  return NextResponse.json({ executionId: outcome.executionId, status: 'submitted' }, { status: 202 });
 }

@@ -24,6 +24,7 @@ Hackathon ends: May 6, 2026. Today: April 28.
 - [x] Execution broadcasts an onchain transaction from the UI
 - [x] Position monitor polls the onchain registry snapshot
 - [x] Strategy cards use live APR snapshots for planning
+- [x] Rebalance button drafts a new intent from the active position
 - [x] Intent planning and execution helpers have tests
 - [x] Plan integrity validation rejects tampered execution payloads
 - [x] Execution duplicate submissions are rejected in the live store
@@ -196,7 +197,6 @@ Hardening targets for v0.1:
 
 To make the testnet version complete, the remaining work is mostly product integration, not core security plumbing:
 
-- validate the monitor/rebalance loop end to end on testnet
 - capture the testnet run in a reproducible demo script
 
 After that:

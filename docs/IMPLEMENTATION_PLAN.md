@@ -199,6 +199,10 @@ To make the testnet version complete, the remaining work is mostly product integ
 
 - capture the testnet run in a reproducible demo script
 
+Known limitation:
+
+- the current monitor is registry-snapshot based for v0; the full Uniswap tick-range oracle is tracked in [docs/issues/001-monitor-tick-range-oracle.md](/home/fred/Downloads/hackathons/uni-agent/docs/issues/001-monitor-tick-range-oracle.md)
+
 After that:
 
 - v1 is the Base mainnet launch of the working flow

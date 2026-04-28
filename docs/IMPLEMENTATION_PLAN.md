@@ -22,6 +22,7 @@ Hackathon ends: May 6, 2026. Today: April 28.
 - [x] Execution payloads require a valid plan hash format
 - [x] Execution requests are signed in-wallet and verified server-side
 - [x] Execution broadcasts an onchain transaction from the UI
+- [x] Position monitor polls the onchain registry snapshot
 - [x] Intent planning and execution helpers have tests
 - [x] Plan integrity validation rejects tampered execution payloads
 - [x] Execution duplicate submissions are rejected in the live store

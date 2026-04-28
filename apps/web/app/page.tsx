@@ -1,10 +1,11 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAccount, useEnsName, useEnsAvatar, usePublicClient, useSignMessage, useWriteContract } from 'wagmi';
 import { mainnet, base } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { buildExecutionDigest, buildExecutorExecution } from '@/lib/onchain';
+import type { MonitorSnapshot } from '@/lib/services/monitor';
 
 function useResolvedName(address?: `0x${string}`) {
   const { data: baseName } = useEnsName({ address, chainId: base.id });
@@ -195,10 +196,39 @@ export default function Page() {
   const [planRes, setPlanRes]     = useState<PlanResponse | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [execution, setExecution] = useState<Execution | null>(null);
+  const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [error, setError]         = useState('');
 
   const amountNum = Number(amount);
   const amountTooSmall = amountNum > 0 && amountNum < 10;
+
+  useEffect(() => {
+    const positionId = execution?.position?.positionId;
+    if (!positionId || step !== 'done') {
+      return;
+    }
+
+    let cancelled = false;
+    const poll = async () => {
+      try {
+        const res = await fetch(api(`/v1/positions/${positionId}/monitor`));
+        if (!res.ok) return;
+        const data = await res.json() as { snapshot?: MonitorSnapshot };
+        if (!cancelled && data.snapshot) {
+          setMonitor(data.snapshot);
+        }
+      } catch {
+        // ignore demo monitor blips
+      }
+    };
+
+    void poll();
+    const id = setInterval(poll, 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [execution?.position?.positionId, step]);
 
   async function handleSubmit() {
     if (!address) return;
@@ -206,6 +236,7 @@ export default function Page() {
     setStep('planning');
     setPlanRes(null);
     setSelectedId(null);
+    setMonitor(null);
 
     try {
       const createRes = await fetch(api('/v1/intents'), {
@@ -248,6 +279,7 @@ export default function Page() {
     setSelectedId(planId);
     setStep('executing');
     setError('');
+    setMonitor(null);
 
     try {
       const permit2Signature = await signMessageAsync({
@@ -559,7 +591,9 @@ export default function Page() {
         <div className="position-box">
           <div className="position-header">
             <span className="position-title">Your position</span>
-            <span className="in-range-badge">Earning</span>
+            <span className={`in-range-badge${monitor && !monitor.inRange ? ' out' : ''}`}>
+              {monitor ? (monitor.inRange ? 'In range' : 'Needs rebalance') : 'Earning'}
+            </span>
           </div>
           <div className="position-stats">
             <div className="position-stat">
@@ -571,6 +605,19 @@ export default function Page() {
               <div className="position-stat-lbl">Converted</div>
             </div>
           </div>
+          {monitor && (
+            <div style={{
+              marginBottom: 12,
+              padding: '10px 12px',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              background: 'var(--surface-soft)',
+              fontSize: 12,
+              color: 'var(--text-faint)',
+            }}>
+              monitor: {monitor.inRange ? 'healthy' : 'rebalance suggested'} · drift {monitor.driftPercent}%
+            </div>
+          )}
           <button
             className="btn-ghost"
             style={{ width: '100%' }}

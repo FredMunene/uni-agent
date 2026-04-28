@@ -113,7 +113,7 @@ test('startExecution rejects a duplicate execution for the same intent', async (
       ],
     },
     executions: {
-      findByIntent: async () => ({ executionId: 'exec_existing' }),
+      findByIntent: async () => ({ status: 'submitted' }),
       set: async () => undefined,
     },
   };
@@ -130,4 +130,50 @@ test('startExecution rejects a duplicate execution for the same intent', async (
     assert.equal(outcome.status, 409);
     assert.match(outcome.error, /Execution already exists/);
   }
+});
+
+test('startExecution marks the execution failed when persisting intent state fails', async () => {
+  const intent = makeIntent();
+  const executions: Record<string, any> = {};
+  let executionId = '';
+  const store = {
+    intents: {
+      get: async () => intent,
+      set: async () => {
+        throw new Error('redis write failed');
+      },
+    },
+    plans: {
+      get: async () => [
+        {
+          planId: 'plan_123',
+          steps: [{ type: 'swap', amountIn: '1', estimatedAmountOut: '2' }],
+        },
+      ],
+    },
+    executions: {
+      set: async (id: string, execution: unknown) => {
+        executionId = id;
+        executions[id] = execution;
+      },
+      findByIntent: async () => null,
+    },
+  };
+
+  const outcome = await startExecution(
+    store,
+    intent.intentId,
+    'plan_123',
+    intent.userAddress,
+  );
+
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.status, 500);
+    assert.match(outcome.error, /Failed to persist execution state/);
+  }
+
+  assert.ok(executionId);
+  assert.equal(executions[executionId]?.status, 'failed');
+  assert.match(String(executions[executionId]?.error), /redis write failed/);
 });

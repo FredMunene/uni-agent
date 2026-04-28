@@ -31,7 +31,7 @@ type StoreLike = {
     get(intentId: string): Promise<PlanLike[]>;
   };
   executions: {
-    findByIntent?(intentId: string): Promise<unknown | null>;
+    findByIntent?(intentId: string): Promise<{ status?: string } | null>;
     set(id: string, execution: unknown): Promise<unknown>;
   };
 };
@@ -59,14 +59,13 @@ export async function startExecution(
 
   if (storeApi.executions.findByIntent) {
     const existing = await storeApi.executions.findByIntent(intentId);
-    if (existing) {
+    if (existing && existing.status !== 'failed') {
       return { ok: false as const, status: 409, error: 'Execution already exists for intent' };
     }
   }
 
   const executionId = `exec_${nanoid(8)}`;
-  await storeApi.intents.set(intentId, { ...intent, status: 'executing' });
-  await storeApi.executions.set(executionId, {
+  const executionRecord = {
     executionId,
     planId,
     intentId,
@@ -74,7 +73,20 @@ export async function startExecution(
     steps: plan.steps.map((s: any) => ({ type: s.type, status: 'pending' as const })),
     createdAt: new Date().toISOString(),
     _plan: plan,
-  });
+  };
+
+  await storeApi.executions.set(executionId, executionRecord);
+
+  try {
+    await storeApi.intents.set(intentId, { ...intent, status: 'executing' });
+  } catch (err) {
+    await storeApi.executions.set(executionId, {
+      ...executionRecord,
+      status: 'failed',
+      error: err instanceof Error ? err.message : 'Failed to persist execution state',
+    });
+    return { ok: false as const, status: 500, error: 'Failed to persist execution state' };
+  }
 
   return { ok: true as const, executionId };
 }

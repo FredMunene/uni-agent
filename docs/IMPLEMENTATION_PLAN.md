@@ -30,6 +30,7 @@ Hackathon ends: May 6, 2026. Today: April 28.
 - [x] Execution duplicate submissions are rejected in the live store
 - [x] Vault refunds are restricted to the depositor only
 - [x] Foundry test suite passes for vault and executor hardening
+- [x] Reproducible CLI demo script captures intent -> plan -> execute -> monitor -> rebalance
 
 ---
 
@@ -195,9 +196,7 @@ Hardening targets for v0.1:
 
 ## Remaining For v0
 
-To make the testnet version complete, the remaining work is mostly product integration, not core security plumbing:
-
-- capture the testnet run in a reproducible demo script
+To make the testnet version complete, the remaining work is now mostly release polish, not core product wiring:
 
 Known limitation:
 

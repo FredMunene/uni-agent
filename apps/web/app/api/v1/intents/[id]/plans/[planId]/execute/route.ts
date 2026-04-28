@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
+import { verifyMessage } from 'viem';
 import type { Intent } from '@uni-agent/shared';
 import { ExecuteSchema } from '@uni-agent/shared';
 import { store } from '@/lib/store';
@@ -12,6 +13,21 @@ type PlanLike = {
 };
 
 const PLAN_HASH_PATTERN = /^0x[a-fA-F0-9]{64}$/;
+
+export function buildExecutionAuthorizationMessage(
+  intentId: string,
+  planId: string,
+  planHash: string,
+  userAddress: string,
+): string {
+  return [
+    'Uni-Agent execution authorization',
+    `intentId: ${intentId}`,
+    `planId: ${planId}`,
+    `planHash: ${planHash}`,
+    `userAddress: ${userAddress}`,
+  ].join('\n');
+}
 
 export function assertExecutionAuthorized(
   intent: Intent,
@@ -46,6 +62,7 @@ export async function startExecution(
   planId: string,
   userAddress: string,
   submittedPlanHash: string,
+  permit2Signature: string,
 ) {
   const intent = await storeApi.intents.get(intentId);
   if (!intent) return { ok: false as const, status: 404, error: 'Intent not found' };
@@ -66,6 +83,10 @@ export async function startExecution(
     return { ok: false as const, status: 400, error: 'Missing plan hash' };
   }
 
+  if (!permit2Signature) {
+    return { ok: false as const, status: 400, error: 'Missing permit2 signature' };
+  }
+
   if (!PLAN_HASH_PATTERN.test(submittedPlanHash)) {
     return { ok: false as const, status: 400, error: 'Invalid plan hash format' };
   }
@@ -76,6 +97,22 @@ export async function startExecution(
 
   if (submittedPlanHash !== plan.planHash) {
     return { ok: false as const, status: 409, error: 'Submitted plan hash mismatch' };
+  }
+
+  const executionMessage = buildExecutionAuthorizationMessage(intentId, planId, plan.planHash, userAddress);
+  let signatureValid = false;
+  try {
+    signatureValid = await verifyMessage({
+      address: userAddress as `0x${string}`,
+      message: executionMessage,
+      signature: permit2Signature as `0x${string}`,
+    });
+  } catch {
+    return { ok: false as const, status: 400, error: 'Invalid permit2 signature' };
+  }
+
+  if (!signatureValid) {
+    return { ok: false as const, status: 403, error: 'Permit2 signature mismatch' };
   }
 
   if (storeApi.executions.findByIntent) {
@@ -125,6 +162,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
     planId,
     result.data.userAddress,
     typeof body.planHash === 'string' ? body.planHash : '',
+    result.data.permit2Signature,
   );
   if (!outcome.ok) {
     return NextResponse.json({ error: outcome.error }, { status: outcome.status });

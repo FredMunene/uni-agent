@@ -46,9 +46,10 @@ contract IntentExecutorTest is Test {
             steps: steps
         });
 
+        vm.prank(user);
         executor.execute(params);
 
-        assertTrue(target.called);
+        assertEq(target.called(), true);
     }
 
     function test_execute_reverts_for_invalid_signer() public {

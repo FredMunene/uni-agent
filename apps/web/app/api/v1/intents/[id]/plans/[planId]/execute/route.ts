@@ -43,6 +43,7 @@ export async function startExecution(
   intentId: string,
   planId: string,
   userAddress: string,
+  submittedPlanHash: string,
 ) {
   const intent = await storeApi.intents.get(intentId);
   if (!intent) return { ok: false as const, status: 404, error: 'Intent not found' };
@@ -59,8 +60,16 @@ export async function startExecution(
   const plan = plans?.find((p) => p.planId === planId);
   if (!plan) return { ok: false as const, status: 404, error: 'Plan not found' };
 
+  if (!submittedPlanHash) {
+    return { ok: false as const, status: 400, error: 'Missing plan hash' };
+  }
+
   if (!plan.planHash || computePlanHash(plan as any) !== plan.planHash) {
     return { ok: false as const, status: 409, error: 'Plan integrity mismatch' };
+  }
+
+  if (submittedPlanHash !== plan.planHash) {
+    return { ok: false as const, status: 409, error: 'Submitted plan hash mismatch' };
   }
 
   if (storeApi.executions.findByIntent) {
@@ -104,7 +113,13 @@ export async function POST(req: Request, { params }: { params: Promise<{ id: str
   const result = ExecuteSchema.safeParse(body);
   if (!result.success) return NextResponse.json({ error: result.error.flatten() }, { status: 400 });
 
-  const outcome = await startExecution(store, id, planId, result.data.userAddress);
+  const outcome = await startExecution(
+    store,
+    id,
+    planId,
+    result.data.userAddress,
+    typeof body.planHash === 'string' ? body.planHash : '',
+  );
   if (!outcome.ok) {
     return NextResponse.json({ error: outcome.error }, { status: outcome.status });
   }

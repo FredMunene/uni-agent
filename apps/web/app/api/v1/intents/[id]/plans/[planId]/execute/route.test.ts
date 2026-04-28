@@ -115,6 +115,7 @@ test('startExecution marks the intent as executing and stores one execution reco
     intent.intentId,
     'plan_123',
     intent.userAddress,
+    makeStoredPlan(intent.intentId).planHash,
   );
 
   assert.equal(outcome.ok, true);
@@ -163,6 +164,7 @@ test('startExecution rejects a plan whose contents do not match its hash', async
     intent.intentId,
     'plan_123',
     intent.userAddress,
+    tamperedPlan.planHash,
   );
 
   assert.equal(outcome.ok, false);
@@ -195,12 +197,45 @@ test('startExecution rejects a duplicate execution for the same intent', async (
     intent.intentId,
     'plan_123',
     intent.userAddress,
+    makeStoredPlan(intent.intentId).planHash,
   );
 
   assert.equal(outcome.ok, false);
   if (!outcome.ok) {
     assert.equal(outcome.status, 409);
     assert.match(outcome.error, /Execution already exists/);
+  }
+});
+
+test('startExecution rejects a submitted plan hash that does not match the stored hash', async () => {
+  const intent = makeIntent();
+  const store = {
+    intents: {
+      get: async () => intent,
+      set: async () => undefined,
+    },
+    plans: {
+      get: async () => [
+        makeStoredPlan(intent.intentId),
+      ],
+    },
+    executions: {
+      set: async () => undefined,
+    },
+  };
+
+  const outcome = await startExecution(
+    store,
+    intent.intentId,
+    'plan_123',
+    intent.userAddress,
+    '0x1234',
+  );
+
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.status, 409);
+    assert.match(outcome.error, /Submitted plan hash mismatch/);
   }
 });
 
@@ -234,6 +269,7 @@ test('startExecution marks the execution failed when persisting intent state fai
     intent.intentId,
     'plan_123',
     intent.userAddress,
+    makeStoredPlan(intent.intentId).planHash,
   );
 
   assert.equal(outcome.ok, false);

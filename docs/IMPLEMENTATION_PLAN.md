@@ -23,6 +23,7 @@ Hackathon ends: May 6, 2026. Today: April 28.
 - [x] Execution requests are signed in-wallet and verified server-side
 - [x] Execution broadcasts an onchain transaction from the UI
 - [x] Position monitor polls the onchain registry snapshot
+- [x] Strategy cards use live APR snapshots for planning
 - [x] Intent planning and execution helpers have tests
 - [x] Plan integrity validation rejects tampered execution payloads
 - [x] Execution duplicate submissions are rejected in the live store
@@ -195,7 +196,6 @@ Hardening targets for v0.1:
 
 To make the testnet version complete, the remaining work is mostly product integration, not core security plumbing:
 
-- finish the APR-backed 3-strategy flow in the current UI if any branch is still stubbed
 - validate the monitor/rebalance loop end to end on testnet
 - capture the testnet run in a reproducible demo script
 

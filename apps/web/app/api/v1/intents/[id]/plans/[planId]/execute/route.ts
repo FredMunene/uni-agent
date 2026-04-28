@@ -26,6 +26,7 @@ type StoreLike = {
     get(intentId: string): Promise<unknown[]>;
   };
   executions: {
+    findByIntent?(intentId: string): Promise<unknown | null>;
     set(id: string, execution: unknown): Promise<unknown>;
   };
 };
@@ -50,6 +51,13 @@ export async function startExecution(
   const plans = await storeApi.plans.get(intentId);
   const plan = plans?.find((p: any) => p.planId === planId);
   if (!plan) return { ok: false as const, status: 404, error: 'Plan not found' };
+
+  if (storeApi.executions.findByIntent) {
+    const existing = await storeApi.executions.findByIntent(intentId);
+    if (existing) {
+      return { ok: false as const, status: 409, error: 'Execution already exists for intent' };
+    }
+  }
 
   const executionId = `exec_${nanoid(8)}`;
   await storeApi.intents.set(intentId, { ...intent, status: 'executing' });

@@ -96,3 +96,38 @@ test('startExecution marks the intent as executing and stores one execution reco
   assert.equal(execution.planId, 'plan_123');
   assert.equal(execution.status, 'submitted');
 });
+
+test('startExecution rejects a duplicate execution for the same intent', async () => {
+  const intent = makeIntent();
+  const store = {
+    intents: {
+      get: async () => intent,
+      set: async () => undefined,
+    },
+    plans: {
+      get: async () => [
+        {
+          planId: 'plan_123',
+          steps: [{ type: 'swap', amountIn: '1', estimatedAmountOut: '2' }],
+        },
+      ],
+    },
+    executions: {
+      findByIntent: async () => ({ executionId: 'exec_existing' }),
+      set: async () => undefined,
+    },
+  };
+
+  const outcome = await startExecution(
+    store,
+    intent.intentId,
+    'plan_123',
+    intent.userAddress,
+  );
+
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.status, 409);
+    assert.match(outcome.error, /Execution already exists/);
+  }
+});

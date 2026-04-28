@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useEnsName, useEnsAvatar } from 'wagmi';
+import { useAccount, useEnsName, useEnsAvatar, useSignMessage } from 'wagmi';
 import { mainnet, base } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 
@@ -167,10 +167,21 @@ function stepIcon(status: string): string {
   return ({ pending: '○', submitted: '◌', confirmed: '✓', failed: '✕' } as Record<string, string>)[status] ?? '○';
 }
 
+function buildExecutionMessage(intentId: string, planId: string, planHash: string, userAddress: string): string {
+  return [
+    'Uni-Agent execution authorization',
+    `intentId: ${intentId}`,
+    `planId: ${planId}`,
+    `planHash: ${planHash}`,
+    `userAddress: ${userAddress}`,
+  ].join('\n');
+}
+
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function Page() {
   const { address } = useAccount();
+  const { signMessageAsync } = useSignMessage();
 
   const [step, setStep]           = useState<AppStep>('idle');
   const [goal, setGoal]           = useState('');
@@ -243,18 +254,27 @@ export default function Page() {
 
   async function handleSelect(planId: string) {
     const plan = planRes?.plans.find((p) => p.planId === planId);
+    if (!plan?.planHash) {
+      setError('Missing plan hash for execution.');
+      return;
+    }
+
     setSelectedId(planId);
     setStep('executing');
     setError('');
 
     try {
+      const permit2Signature = await signMessageAsync({
+        message: buildExecutionMessage(intentId, planId, plan.planHash, address ?? ''),
+      });
+
       const res = await fetch(api(`/v1/intents/${intentId}/plans/${planId}/execute`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          permit2Signature: '0x',
+          permit2Signature,
           userAddress: address,
-          planHash: plan?.planHash,
+          planHash: plan.planHash,
         }),
       });
       if (!res.ok) throw new Error('Execution failed to start.');
@@ -437,9 +457,9 @@ export default function Page() {
             {step === 'done' ? 'Position opened ✓' : 'Opening your position…'}
           </div>
           <div className="exec-subtitle">
-            {step === 'done'
+          {step === 'done'
               ? 'Your funds are now earning yield.'
-              : 'Confirm each step in your wallet when prompted.'}
+              : 'Confirm the execution signature and onchain steps in your wallet.'}
           </div>
 
           {selectedId && (

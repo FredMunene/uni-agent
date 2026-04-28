@@ -3,6 +3,7 @@ import { tools } from './tools';
 import { getSwapQuote } from '../services/quote';
 import { getLpParams } from '../services/lp';
 import { simulateBundle } from '../services/simulate';
+import { getAprSnapshot, type AprSnapshot } from '../services/apr';
 import { quoteCache } from '../services/quoteCache';
 import type { Intent, Plan, PlanStep } from '@uni-agent/shared';
 import { BASE_MAINNET, BASE_SEPOLIA, EXECUTION_CHAIN_ID, FULL_RANGE_TICKS, LP_FEE_TIERS, QUOTE_CHAIN_ID } from '@uni-agent/shared';
@@ -75,6 +76,7 @@ async function handleToolCall(name: string, args: ToolInput, userAddress: string
 
 export async function generatePlan(intent: Intent): Promise<Plan[]> {
   const chat = getModel().startChat();
+  const aprSnapshot = await getAprSnapshot();
 
   const userMessage = `
 Intent: ${intent.goal}
@@ -104,52 +106,159 @@ Call get_swap_quote, then get_lp_params, then simulate_bundle, then summarise th
     response = await chat.sendMessage(responses);
   }
 
-  return buildPlan(intent, toolResults, response.response.text());
+  return buildPlan(intent, toolResults, response.response.text(), aprSnapshot);
 }
 
-function buildPlan(intent: Intent, toolResults: Record<string, unknown>, agentSummary: string): Plan[] {
+export function buildPlan(
+  intent: Intent,
+  toolResults: Record<string, unknown>,
+  agentSummary: string,
+  aprSnapshot: AprSnapshot,
+): Plan[] {
   const swapQuote = toolResults['get_swap_quote'] as Record<string, unknown> | undefined;
-  const lpParams = toolResults['get_lp_params'] as Record<string, unknown> | undefined;
+  const lpParams  = toolResults['get_lp_params']  as Record<string, unknown> | undefined;
   const simulation = toolResults['simulate_bundle'] as Record<string, unknown> | undefined;
 
+  const fullAmount = intent.inputAmount;
   const halfAmount = (BigInt(intent.inputAmount) / 2n).toString();
+  const wethOut    = (swapQuote?.amountOut as string | undefined) ?? '0';
+  const gasUsd     = (simulation?.gasUsd  as string | undefined) ?? '1.50';
+  const fullTickLower = (lpParams?.tickLower as number | undefined) ?? FULL_RANGE_TICKS.tickLower;
+  const fullTickUpper = (lpParams?.tickUpper as number | undefined) ?? FULL_RANGE_TICKS.tickUpper;
+  const centerTick    = Math.round((fullTickLower + fullTickUpper) / 2);
 
-  const steps: PlanStep[] = [
+  // ±5% concentrated range (~1000 ticks at 0.01% spacing)
+  const tightTickLower = centerTick - 1000;
+  const tightTickUpper = centerTick + 1000;
+
+  const validUntil = new Date(Date.now() + 5 * 60 * 1000).toISOString();
+  const now = new Date().toISOString();
+
+  const solverMeta = {
+    solverAddress: '0x0000000000000000000000000000000000000001',
+    solverName: 'Gemini-LP-v1',
+    bidBondWei: '1000000000000000', // 0.001 ETH
+    validUntil,
+  };
+
+  // ── Conservative: hold USDC, no swap, stable pool ───────────────────────────
+  const conservativeSteps: PlanStep[] = [
+    {
+      stepId: 'step_001',
+      type: 'add_liquidity',
+      provider: 'stable_pool',
+      chainId: EXECUTION_CHAIN_ID,
+      fromToken: BASE_SEPOLIA.USDC,
+      toToken: BASE_SEPOLIA.USDC,
+      token0AmountIn: fullAmount,
+      token1AmountIn: '0',
+      tickLower: FULL_RANGE_TICKS.tickLower,
+      tickUpper: FULL_RANGE_TICKS.tickUpper,
+    },
+  ];
+
+  // ── Balanced: swap 50% USDC → WETH, full range ──────────────────────────────
+  const balancedSteps: PlanStep[] = [
     {
       stepId: 'step_001',
       type: 'swap',
-      provider: 'uniswap',
+      provider: 'dex',
       chainId: EXECUTION_CHAIN_ID,
       fromToken: BASE_SEPOLIA.USDC,
       toToken: BASE_SEPOLIA.WETH,
       amountIn: halfAmount,
-      estimatedAmountOut: (swapQuote?.amountOut as string | undefined) ?? '0',
+      estimatedAmountOut: wethOut,
       slippageBps: intent.constraints.maxSlippageBps,
     },
     {
       stepId: 'step_002',
       type: 'add_liquidity',
-      provider: 'uniswap_v4',
+      provider: 'dex_v4',
       chainId: EXECUTION_CHAIN_ID,
       fromToken: BASE_SEPOLIA.USDC,
       toToken: BASE_SEPOLIA.WETH,
       token0AmountIn: halfAmount,
-      token1AmountIn: (swapQuote?.amountOut as string | undefined) ?? '0',
-      tickLower: (lpParams?.tickLower as number | undefined) ?? FULL_RANGE_TICKS.tickLower,
-      tickUpper: (lpParams?.tickUpper as number | undefined) ?? FULL_RANGE_TICKS.tickUpper,
+      token1AmountIn: wethOut,
+      tickLower: fullTickLower,
+      tickUpper: fullTickUpper,
     },
   ];
 
-  return [{
-    planId: `plan_${nanoid(8)}`,
-    intentId: intent.intentId,
-    strategy: 'balanced' as const,
-    label: 'USDC/WETH LP — Balanced Growth',
-    estimatedNetApyBps: 480,
-    estimatedGasUsd: (simulation?.gasUsd as string | undefined) ?? '1.50',
-    riskScore: intent.risk,
-    steps,
-    risk: { maxLossUsd: '2.50', notes: agentSummary.slice(0, 300) },
-    createdAt: new Date().toISOString(),
-  }];
+  // ── Aggressive: swap 50% USDC → WETH, concentrated ±5% range ───────────────
+  const aggressiveSteps: PlanStep[] = [
+    {
+      stepId: 'step_001',
+      type: 'swap',
+      provider: 'dex',
+      chainId: EXECUTION_CHAIN_ID,
+      fromToken: BASE_SEPOLIA.USDC,
+      toToken: BASE_SEPOLIA.WETH,
+      amountIn: halfAmount,
+      estimatedAmountOut: wethOut,
+      slippageBps: intent.constraints.maxSlippageBps,
+    },
+    {
+      stepId: 'step_002',
+      type: 'add_liquidity',
+      provider: 'dex_v4',
+      chainId: EXECUTION_CHAIN_ID,
+      fromToken: BASE_SEPOLIA.USDC,
+      toToken: BASE_SEPOLIA.WETH,
+      token0AmountIn: halfAmount,
+      token1AmountIn: wethOut,
+      tickLower: tightTickLower,
+      tickUpper: tightTickUpper,
+    },
+  ];
+
+  return [
+    {
+      planId: `plan_${nanoid(8)}`,
+      intentId: intent.intentId,
+      strategy: 'conservative' as const,
+      label: 'Safe & Steady',
+      estimatedNetApyBps: aprSnapshot.stable.apyBps,
+      estimatedGasUsd: '0.04',
+      riskScore: 'low' as const,
+      steps: conservativeSteps,
+      risk: {
+        maxLossUsd: '0.00',
+        notes: `Stable pool APR from ${aprSnapshot.stable.project}/${aprSnapshot.stable.pool} via ${aprSnapshot.source}.`,
+      },
+      createdAt: now,
+      solver: solverMeta,
+    },
+    {
+      planId: `plan_${nanoid(8)}`,
+      intentId: intent.intentId,
+      strategy: 'balanced' as const,
+      label: 'Balanced Growth',
+      estimatedNetApyBps: aprSnapshot.balanced.apyBps,
+      estimatedGasUsd: gasUsd,
+      riskScore: 'medium' as const,
+      steps: balancedSteps,
+      risk: {
+        maxLossUsd: '4.20',
+        notes: `${agentSummary.slice(0, 140)} Live APR: ${aprSnapshot.balanced.apy.toFixed(2)}% (${aprSnapshot.source}).`,
+      },
+      createdAt: now,
+      solver: solverMeta,
+    },
+    {
+      planId: `plan_${nanoid(8)}`,
+      intentId: intent.intentId,
+      strategy: 'aggressive' as const,
+      label: 'Maximum Yield',
+      estimatedNetApyBps: aprSnapshot.aggressive.apyBps,
+      estimatedGasUsd: gasUsd,
+      riskScore: 'high' as const,
+      steps: aggressiveSteps,
+      risk: {
+        maxLossUsd: '24.00',
+        notes: `Concentrated range. Live APR baseline ${aprSnapshot.aggressive.apy.toFixed(2)}% from ${aprSnapshot.aggressive.pool}.`,
+      },
+      createdAt: now,
+      solver: solverMeta,
+    },
+  ];
 }

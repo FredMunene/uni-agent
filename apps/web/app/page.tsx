@@ -1,9 +1,10 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useEnsName, useEnsAvatar, useSignMessage } from 'wagmi';
+import { useState } from 'react';
+import { useAccount, useEnsName, useEnsAvatar, usePublicClient, useSignMessage, useWriteContract } from 'wagmi';
 import { mainnet, base } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { buildExecutionDigest, buildExecutorExecution } from '@/lib/onchain';
 
 function useResolvedName(address?: `0x${string}`) {
   const { data: baseName } = useEnsName({ address, chainId: base.id });
@@ -181,7 +182,9 @@ function buildExecutionMessage(intentId: string, planId: string, planHash: strin
 
 export default function Page() {
   const { address } = useAccount();
+  const publicClient = usePublicClient();
   const { signMessageAsync } = useSignMessage();
+  const { writeContractAsync } = useWriteContract();
 
   const [step, setStep]           = useState<AppStep>('idle');
   const [goal, setGoal]           = useState('');
@@ -196,23 +199,6 @@ export default function Page() {
 
   const amountNum = Number(amount);
   const amountTooSmall = amountNum > 0 && amountNum < 10;
-
-  // poll execution status
-  const pollExecution = useCallback((execId: string) => {
-    const id = setInterval(async () => {
-      try {
-        const res = await fetch(api(`/v1/executions/${execId}`));
-        if (!res.ok) return;
-        const data = await res.json() as Execution;
-        setExecution(data);
-        if (data.status === 'completed' || data.status === 'failed') {
-          clearInterval(id);
-          if (data.status === 'completed') setStep('done');
-        }
-      } catch { /* ignore */ }
-    }, 2000);
-    return id;
-  }, []);
 
   async function handleSubmit() {
     if (!address) return;
@@ -279,7 +265,60 @@ export default function Page() {
       });
       if (!res.ok) throw new Error('Execution failed to start.');
       const { executionId } = await res.json() as { executionId: string };
-      pollExecution(executionId);
+
+      const executorAddress = process.env.NEXT_PUBLIC_INTENT_EXECUTOR_ADDRESS;
+      const registryAddress = process.env.NEXT_PUBLIC_POSITION_REGISTRY_ADDRESS;
+      if (!executorAddress || !registryAddress) {
+        throw new Error('Onchain execution is not configured.');
+      }
+
+      const deadline = Math.floor(Date.now() / 1000) + 900;
+      const onchainDigest = buildExecutionDigest({
+        executorAddress: executorAddress as `0x${string}`,
+        intentId,
+        userAddress: address as `0x${string}`,
+        deadline,
+        planHash: plan.planHash as `0x${string}`,
+      });
+      const onchainSignature = await signMessageAsync({
+        message: { raw: onchainDigest },
+      });
+
+      const txConfig = buildExecutorExecution({
+        executorAddress: executorAddress as `0x${string}`,
+        registryAddress: registryAddress as `0x${string}`,
+        intentId,
+        planId,
+        userAddress: address as `0x${string}`,
+        plan,
+        planHash: plan.planHash as `0x${string}`,
+        signature: onchainSignature as `0x${string}`,
+        deadline: BigInt(deadline),
+      });
+
+      const txHash = await writeContractAsync(txConfig);
+      if (!publicClient) throw new Error('Public client unavailable.');
+      await publicClient.waitForTransactionReceipt({ hash: txHash });
+
+      setExecution({
+        executionId,
+        status: 'completed',
+        steps: [
+          {
+            type: 'add_liquidity',
+            status: 'confirmed',
+            txHash,
+          },
+        ],
+        position: {
+          positionId: txConfig.positionId,
+          pool: 'USDC/WETH 0.05%',
+          token0Amount: txConfig.position.amount0.toString(),
+          token1Amount: txConfig.position.amount1.toString(),
+          liquidity: txConfig.position.liquidity.toString(),
+        },
+      });
+      setStep('done');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Execution failed.');
       setStep('strategies');

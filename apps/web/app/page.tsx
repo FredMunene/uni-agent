@@ -1,13 +1,116 @@
 'use client';
 
-import { useState, useTransition, useEffect, useCallback } from 'react';
-import { useAccount } from 'wagmi';
+import { useState, useEffect, useCallback } from 'react';
+import { useAccount, useEnsName, useEnsAvatar } from 'wagmi';
+import { mainnet, base } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+
+function useResolvedName(address?: `0x${string}`) {
+  const { data: baseName } = useEnsName({ address, chainId: base.id });
+  const { data: ensName }  = useEnsName({ address, chainId: mainnet.id });
+  const { data: ensAvatar } = useEnsAvatar({
+    name: baseName ?? ensName ?? undefined,
+    chainId: mainnet.id,
+  });
+  const displayName = baseName ?? ensName ?? null;
+  return { displayName, ensAvatar, baseName, ensName };
+}
+
+function WalletButton() {
+  const { address } = useAccount();
+  const { displayName, ensAvatar, baseName, ensName } = useResolvedName(address);
+
+  return (
+    <ConnectButton.Custom>
+      {({ account, chain, openAccountModal, openConnectModal, mounted }) => {
+        const connected = mounted && account && chain;
+
+        if (!connected) {
+          return (
+            <button onClick={openConnectModal} style={{
+              background: 'var(--orange)', border: 'none', borderRadius: 99,
+              color: '#fff', fontSize: 13, fontWeight: 600,
+              padding: '8px 18px', cursor: 'pointer', transition: 'background 0.15s',
+            }}
+            onMouseEnter={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--orange-hover)'}
+            onMouseLeave={e => (e.currentTarget as HTMLButtonElement).style.background = 'var(--orange)'}
+            >
+              Connect wallet
+            </button>
+          );
+        }
+
+        const name = displayName
+          ?? `${account.address.slice(0, 6)}…${account.address.slice(-4)}`;
+        const avatar = ensAvatar
+          ?? account.ensAvatar
+          ?? `https://api.dicebear.com/7.x/identicon/svg?seed=${account.address}`;
+        const isNamed = !!(baseName ?? ensName ?? account.ensName);
+
+        return (
+          <button onClick={openAccountModal} style={{
+            display: 'flex', alignItems: 'center', gap: 8,
+            background: 'var(--surface)', border: '1.5px solid var(--border)',
+            borderRadius: 99, padding: '5px 12px 5px 6px',
+            cursor: 'pointer', boxShadow: 'var(--shadow)', transition: 'all 0.15s',
+          }}
+          onMouseEnter={e => {
+            const b = e.currentTarget as HTMLButtonElement;
+            b.style.borderColor = 'var(--orange-dim)';
+            b.style.boxShadow = 'var(--shadow-md)';
+          }}
+          onMouseLeave={e => {
+            const b = e.currentTarget as HTMLButtonElement;
+            b.style.borderColor = 'var(--border)';
+            b.style.boxShadow = 'var(--shadow)';
+          }}
+          >
+            {/* avatar */}
+            <div style={{ position: 'relative', flexShrink: 0 }}>
+              <img src={avatar} alt="" width={28} height={28}
+                style={{ borderRadius: '50%', display: 'block' }} />
+              {/* green online dot */}
+              <div style={{
+                position: 'absolute', bottom: 0, right: 0,
+                width: 8, height: 8, borderRadius: '50%',
+                background: 'var(--green)',
+                border: '2px solid var(--surface)',
+              }} />
+            </div>
+
+            {/* name / address */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', lineHeight: 1.2 }}>
+              <span style={{
+                fontSize: 13, fontWeight: 600, color: 'var(--text)',
+                fontFamily: isNamed ? 'var(--sans)' : 'var(--mono)',
+                letterSpacing: isNamed ? 0 : '0.02em',
+              }}>
+                {name}
+              </span>
+              {isNamed && (
+                <span style={{ fontSize: 10, color: 'var(--text-faint)', fontFamily: 'var(--mono)' }}>
+                  {account.address.slice(0, 6)}…{account.address.slice(-4)}
+                </span>
+              )}
+            </div>
+
+            {/* chevron */}
+            <svg width="11" height="11" viewBox="0 0 12 12" fill="none"
+              style={{ color: 'var(--text-faint)', flexShrink: 0, marginLeft: 2 }}>
+              <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5"
+                strokeLinecap="round" strokeLinejoin="round"/>
+            </svg>
+          </button>
+        );
+      }}
+    </ConnectButton.Custom>
+  );
+}
 import type { Plan } from '@uni-agent/shared';
 
-// ── types ─────────────────────────────────────────────────────────────────────
+// ── types ────────────────────────────────────────────────────────────────────
 
-type AppStep = 'intent' | 'planning' | 'plan' | 'executing' | 'position';
+type AppStep = 'idle' | 'planning' | 'strategies' | 'executing' | 'done';
 
 type PlanResponse = {
   intentId: string;
@@ -22,6 +125,7 @@ type Execution = {
   status: string;
   steps: ExecStep[];
   position?: {
+    positionId: string;
     pool: string;
     token0Amount: string;
     token1Amount: string;
@@ -29,404 +133,353 @@ type Execution = {
   };
 };
 
-// ── helpers ───────────────────────────────────────────────────────────────────
+// ── helpers ──────────────────────────────────────────────────────────────────
 
 const api = (path: string) => `/api${path}`;
 
 function fmt(wei: string, decimals: number): string {
   if (!wei || wei === '0') return '0';
   const n = Number(BigInt(wei)) / 10 ** decimals;
-  return n < 0.0001 ? n.toExponential(4) : n.toLocaleString('en-US', { maximumFractionDigits: 6 });
+  return n < 0.0001 ? n.toExponential(4) : n.toLocaleString('en-US', { maximumFractionDigits: 4 });
 }
 
-function shortAddr(addr: string) {
-  return addr ? `${addr.slice(0, 6)}…${addr.slice(-4)}` : '';
+const STRATEGY_META: Record<string, { name: string; desc: string; recommended?: boolean }> = {
+  conservative: { name: 'Safe & Steady',    desc: 'Stable pairs, minimal risk, consistent returns' },
+  balanced:     { name: 'Balanced Growth',  desc: 'Mixed exposure, moderate yield, manageable risk', recommended: true },
+  aggressive:   { name: 'Maximum Yield',    desc: 'Concentrated range, high APR, active management needed' },
+};
+
+const RISK_BADGE: Record<string, string> = {
+  low:    'risk-low',
+  medium: 'risk-medium',
+  high:   'risk-high',
+};
+
+const RISK_LABEL: Record<string, string> = {
+  low: 'Low risk', medium: 'Moderate risk', high: 'Higher risk',
+};
+
+function stepLabel(type: string): string {
+  return ({ swap: 'Splitting your funds', add_liquidity: 'Opening your position' } as Record<string, string>)[type] ?? type;
 }
 
-// ── sub-components ────────────────────────────────────────────────────────────
-
-function Header() {
-  return (
-    <header className="header">
-      <div className="header-logo">
-        ◈ <span>INTENT</span> ROUTER
-      </div>
-      <div className="header-meta">
-        <span className="chain-badge">BASE SEPOLIA</span>
-        <span className="chain-badge">UNISWAP v4</span>
-      </div>
-    </header>
-  );
-}
-
-function StatusRow({ label, done }: { label: string; done?: boolean }) {
-  return (
-    <div className="status-row">
-      <div className={`status-dot${done ? ' done' : ''}`} />
-      {label}
-    </div>
-  );
-}
-
-function PlanSteps({ plan }: { plan: Plan }) {
-  const swap = plan.steps.find((s) => s.type === 'swap');
-  const lp = plan.steps.find((s) => s.type === 'add_liquidity');
-
-  return (
-    <>
-      {swap && (
-        <div className="step-row">
-          <div className="step-num">01</div>
-          <div>
-            <div className="step-type">SWAP</div>
-            <div className="step-detail">
-              {fmt(swap.amountIn ?? '0', 6)} USDC<br />
-              ↓ {fmt(swap.estimatedAmountOut ?? '0', 18)} WETH
-            </div>
-          </div>
-          <div>
-            <div className="live-badge">LIVE</div>
-          </div>
-        </div>
-      )}
-      {lp && (
-        <div className="step-row">
-          <div className="step-num">02</div>
-          <div>
-            <div className="step-type">ADD_LIQUIDITY</div>
-            <div className="step-detail">
-              USDC / WETH · 0.05%<br />
-              FULL RANGE
-            </div>
-          </div>
-          <div>
-            <div className="step-amount">{fmt(lp.token0AmountIn ?? '0', 6)}</div>
-            <div className="step-amount-sub">USDC</div>
-            <div className="step-amount">{fmt(lp.token1AmountIn ?? '0', 18)}</div>
-            <div className="step-amount-sub">WETH</div>
-          </div>
-        </div>
-      )}
-    </>
-  );
-}
-
-function StatsGrid({ plan }: { plan: Plan }) {
-  return (
-    <div className="stats-grid">
-      <div className="stat-cell">
-        <div className="stat-label">GAS EST</div>
-        <div className="stat-value">${plan.estimatedGasUsd}</div>
-      </div>
-      <div className="stat-cell">
-        <div className="stat-label">RISK</div>
-        <div className="stat-value">{plan.riskScore.toUpperCase()}</div>
-      </div>
-      <div className="stat-cell">
-        <div className="stat-label">MAX LOSS</div>
-        <div className="stat-value">${plan.risk.maxLossUsd}</div>
-      </div>
-      <div className="stat-cell">
-        <div className="stat-label">APY EST</div>
-        <div className="stat-value">{(plan.estimatedNetApyBps / 100).toFixed(2)}%</div>
-      </div>
-    </div>
-  );
+function stepIcon(status: string): string {
+  return ({ pending: '○', submitted: '◌', confirmed: '✓', failed: '✕' } as Record<string, string>)[status] ?? '○';
 }
 
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function Page() {
-  const [step, setStep] = useState<AppStep>('intent');
-  const [goal, setGoal] = useState('');
-  const [amount, setAmount] = useState('100'); // human-readable USDC
-  const [risk, setRisk] = useState<'low' | 'medium' | 'high'>('low');
+  const { address } = useAccount();
 
+  const [step, setStep]           = useState<AppStep>('idle');
+  const [goal, setGoal]           = useState('');
+  const [amount, setAmount]       = useState('100');
+  const [risk, setRisk]           = useState<'low' | 'medium' | 'high'>('medium');
 
-  const [intentId, setIntentId] = useState('');
-  const [planRes, setPlanRes] = useState<PlanResponse | null>(null);
+  const [intentId, setIntentId]   = useState('');
+  const [planRes, setPlanRes]     = useState<PlanResponse | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const [execution, setExecution] = useState<Execution | null>(null);
-  const [error, setError] = useState('');
+  const [error, setError]         = useState('');
 
-  const [isPending, startTransition] = useTransition();
-  const [planningPhase, setPlanningPhase] = useState(0);
-  const { address: connectedAddress } = useAccount();
+  const amountNum = Number(amount);
+  const amountTooSmall = amountNum > 0 && amountNum < 10;
 
-  // animate planning phases
-  useEffect(() => {
-    if (step !== 'planning') return;
-    const labels = ['QUERYING UNISWAP TRADING API', 'COMPUTING LP PARAMETERS', 'SIMULATING BUNDLE'];
-    let i = 0;
-    const id = setInterval(() => {
-      i = Math.min(i + 1, labels.length - 1);
-      setPlanningPhase(i);
-    }, 1400);
-    return () => clearInterval(id);
-  }, [step]);
-
-  // poll execution
+  // poll execution status
   const pollExecution = useCallback((execId: string) => {
     const id = setInterval(async () => {
-      const res = await fetch(api(`/v1/executions/${execId}`));
-      if (!res.ok) return;
-      const data = (await res.json()) as Execution;
-      setExecution(data);
-      if (data.status === 'completed' || data.status === 'failed') {
-        clearInterval(id);
-        if (data.status === 'completed') setStep('position');
-      }
+      try {
+        const res = await fetch(api(`/v1/executions/${execId}`));
+        if (!res.ok) return;
+        const data = await res.json() as Execution;
+        setExecution(data);
+        if (data.status === 'completed' || data.status === 'failed') {
+          clearInterval(id);
+          if (data.status === 'completed') setStep('done');
+        }
+      } catch { /* ignore */ }
     }, 2000);
     return id;
   }, []);
 
-  async function generatePlan() {
+  async function handleSubmit() {
+    if (!address) return;
     setError('');
     setStep('planning');
-    setPlanningPhase(0);
+    setPlanRes(null);
+    setSelectedId(null);
 
-    const body = {
-      userAddress: connectedAddress ||'0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
-      inputToken: 'USDC',
-      inputAmount: String(Math.floor(Number(amount) * 1_000_000)),
-      goal: goal || 'Make my USDC productive with low risk',
-      risk,
-      constraints: { maxSlippageBps: 50, deadlineSeconds: 900 },
-    };
+    try {
+      const createRes = await fetch(api('/v1/intents'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userAddress: address,
+          inputToken: 'USDC',
+          inputAmount: String(Math.floor(amountNum * 1_000_000)),
+          goal: goal || `Earn yield on ${amount} USDC with ${risk} risk`,
+          risk,
+          constraints: { maxSlippageBps: 50, deadlineSeconds: 900 },
+        }),
+      });
+      if (!createRes.ok) throw new Error('Could not submit your request.');
+      const { intentId: id } = await createRes.json() as { intentId: string };
+      setIntentId(id);
 
-    const cr = await fetch(api('/v1/intents'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-    });
-    if (!cr.ok) throw new Error(`Intent failed ${cr.status}`);
-    const { intentId: id } = await cr.json() as { intentId: string };
-    setIntentId(id);
-
-    const pr = await fetch(api(`/v1/intents/${id}/plan`), { method: 'POST' });
-    if (!pr.ok) {
-      const { detail } = await pr.json() as { detail?: string };
-      throw new Error(detail ?? `Plan failed ${pr.status}`);
+      const planRes_ = await fetch(api(`/v1/intents/${id}/plan`), { method: 'POST' });
+      if (!planRes_.ok) {
+        const { detail } = await planRes_.json() as { detail?: string };
+        throw new Error(detail ?? 'Could not generate strategies.');
+      }
+      const data = await planRes_.json() as PlanResponse;
+      setPlanRes(data);
+      setStep('strategies');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Something went wrong.');
+      setStep('idle');
     }
-    const data = (await pr.json()) as PlanResponse;
-    setPlanRes(data);
-    setStep('plan');
   }
 
-  async function executeplan(planId: string) {
+  async function handleSelect(planId: string) {
+    setSelectedId(planId);
     setStep('executing');
-    const res = await fetch(api(`/v1/intents/${intentId}/plans/${planId}/execute`), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ permit2Signature: '0x', userAddress: connectedAddress }),
-    });
-    if (!res.ok) throw new Error(`Execute failed ${res.status}`);
-    const { executionId } = await res.json() as { executionId: string };
-    pollExecution(executionId);
+    setError('');
+
+    try {
+      const res = await fetch(api(`/v1/intents/${intentId}/plans/${planId}/execute`), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permit2Signature: '0x', userAddress: address }),
+      });
+      if (!res.ok) throw new Error('Execution failed to start.');
+      const { executionId } = await res.json() as { executionId: string };
+      pollExecution(executionId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Execution failed.');
+      setStep('strategies');
+    }
   }
 
-  const planningLabels = [
-    'QUERYING UNISWAP TRADING API',
-    'COMPUTING LP PARAMETERS',
-    'SIMULATING BUNDLE',
-  ];
-
-  const selectedPlan = planRes?.plans[0];
+  const isLoading = step === 'planning';
+  const showStrategies = step === 'strategies' || step === 'executing' || step === 'done';
+  const showExecution = step === 'executing' || step === 'done';
 
   return (
     <div className="shell">
-      <Header />
 
-      {/* ── INTENT FORM ── */}
-      {(step === 'intent' || step === 'planning') && (
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">INTENT</span>
-            <span className="panel-id">USDC → BASE SEPOLIA</span>
-          </div>
-          <div className="panel-body">
-            <div className="address-row">
-              <label className="field-label">WALLET</label>
-              <div className="connect-wrapper">
-                <ConnectButton
-                  accountStatus="address"
-                  chainStatus="none"
-                  showBalance={false}
-                />
-              </div>
-            </div>
+      {/* ── header ── */}
+      <header className="header">
+        <div className="header-logo">◈ <span>uni</span>agent</div>
+        <WalletButton />
+      </header>
 
-            <textarea
-              className="intent-textarea"
-              rows={2}
-              value={goal}
-              onChange={(e) => setGoal(e.target.value)}
-              placeholder="> e.g. swap 100 USDC for WETH and add liquidity to the USDC/WETH 0.05% pool on Base_"
+      {/* ── screen 1: intent input (always visible) ── */}
+      <div className="intent-box">
+        <textarea
+          className="intent-textarea"
+          rows={2}
+          value={goal}
+          onChange={(e) => setGoal(e.target.value)}
+          placeholder="What do you want to do? e.g. Earn yield on my USDC with low risk"
+          disabled={isLoading}
+        />
+
+        <div className="form-row">
+          <div>
+            <label className="field-label">Amount (USDC)</label>
+            <input
+              className="field-input"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              inputMode="decimal"
+              placeholder="100"
+              disabled={isLoading}
             />
-
-            <div className="form-row">
-              <div>
-                <label className="field-label">AMOUNT (USDC)</label>
-                <input
-                  className="field-input"
-                  value={amount}
-                  onChange={(e) => setAmount(e.target.value)}
-                  inputMode="decimal"
-                  placeholder="e.g. 100"
-                />
-                {Number(amount) > 0 && Number(amount) < 10 && (
-                  <div style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--red)', marginTop: 4 }}>
-                    MIN 10 USDC
-                  </div>
-                )}
-              </div>
-              <div>
-                <label className="field-label">RISK PROFILE</label>
-                <div className="risk-group">
-                  {(['low', 'medium', 'high'] as const).map((r) => (
-                    <button key={r} className={`risk-btn${risk === r ? ' active' : ''}`} onClick={() => setRisk(r)}>
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            {step === 'planning' && (
-              <div style={{ marginBottom: 16 }}>
-                {planningLabels.map((label, i) => (
-                  <StatusRow key={label} label={label} done={i < planningPhase} />
-                ))}
-              </div>
-            )}
-
-            <button
-              className="btn-primary"
-              disabled={isPending || step === 'planning' || Number(amount) < 10}
-              onClick={() =>
-                startTransition(() => {
-                  generatePlan().catch((e) => {
-                    setError(e instanceof Error ? e.message : String(e));
-                    setStep('intent');
-                  });
-                })
-              }
-            >
-              <span>{step === 'planning' ? 'GENERATING PLAN...' : 'GENERATE PLAN'}</span>
-              <span className="btn-arrow">→</span>
-            </button>
-
-            {error && <div className="error-bar">ERR {error}</div>}
+            {amountTooSmall && <div className="field-error">Minimum 10 USDC</div>}
           </div>
+          <div>
+            <label className="field-label">Risk</label>
+            <div className="risk-group">
+              {(['low', 'medium', 'high'] as const).map((r) => (
+                <button
+                  key={r}
+                  className={`risk-btn${risk === r ? ' active' : ''}`}
+                  onClick={() => setRisk(r)}
+                  disabled={isLoading}
+                >
+                  {r === 'low' ? 'Safe' : r === 'medium' ? 'Balanced' : 'Bold'}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <button
+          className="btn-primary"
+          disabled={isLoading || amountTooSmall || !address}
+          onClick={handleSubmit}
+        >
+          {!address
+            ? 'Connect wallet to continue'
+            : isLoading
+            ? <>Finding strategies <span className="loading-dots" style={{ display: 'inline-flex', gap: 3, marginLeft: 6 }}><span/><span/><span/></span></>
+            : 'Find strategies →'}
+        </button>
+
+        {!address && (
+          <p style={{ fontSize: 12, color: 'var(--text-faint)', textAlign: 'center', marginTop: 10 }}>
+            Connect your wallet above to get started
+          </p>
+        )}
+
+        {error && <div className="error-box">{error}</div>}
+      </div>
+
+      {/* ── screen 2: strategy cards (loads below input) ── */}
+      {isLoading && (
+        <div className="loading-box">
+          <div className="loading-dots"><span /><span /><span /></div>
+          <div className="loading-label">Finding the best strategies for you</div>
+          <div className="loading-sub">Analysing live market conditions…</div>
         </div>
       )}
 
-      {/* ── PLAN VIEW ── */}
-      {step === 'plan' && selectedPlan && (
+      {showStrategies && planRes && (
         <>
-          <div className="panel">
-            <div className="panel-header">
-              <span className="panel-title">EXECUTION PLAN</span>
-              <span className="panel-id">{selectedPlan.planId}</span>
-            </div>
-            <div className="panel-body" style={{ padding: '0 16px' }}>
-              <PlanSteps plan={selectedPlan} />
-            </div>
-            <StatsGrid plan={selectedPlan} />
-            {selectedPlan.risk.notes && (
-              <div style={{ padding: '10px 16px', borderTop: '1px solid var(--border)' }}>
-                <span style={{ fontFamily: 'var(--mono)', fontSize: 10, color: 'var(--text-faint)' }}>
-                  {selectedPlan.risk.notes.slice(0, 200)}
-                </span>
-              </div>
-            )}
+          <p className="section-label">
+            {planRes.plans.length} strategies found
+          </p>
+          <div className="strategies-grid">
+            {planRes.plans.map((plan) => {
+              const meta = STRATEGY_META[plan.strategy ?? plan.riskScore] ?? { name: plan.label, desc: '' };
+              const apy = (plan.estimatedNetApyBps / 100).toFixed(1);
+              const isSelected = selectedId === plan.planId;
+              const isRecommended = plan.planId === planRes.recommendedPlanId || meta.recommended;
+              const isExecuting = step === 'executing' || step === 'done';
+
+              return (
+                <div
+                  key={plan.planId}
+                  className={`strategy-card${isSelected ? ' selected' : ''}`}
+                  onClick={() => !isExecuting && handleSelect(plan.planId)}
+                >
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                      <span className="strategy-name">{meta.name}</span>
+                      {isRecommended && (
+                        <span className="strategy-badge recommended">★ Recommended</span>
+                      )}
+                    </div>
+                    <div className="strategy-desc">{meta.desc}</div>
+                    <div className="strategy-stats">
+                      <div className="stat-item">
+                        <div className="stat-num orange">{apy}%</div>
+                        <div className="stat-lbl">Est. APY</div>
+                      </div>
+                      <div className="stat-item">
+                        <div className="stat-num">${plan.estimatedGasUsd}</div>
+                        <div className="stat-lbl">Gas fee</div>
+                      </div>
+                      <div className="stat-item">
+                        <div className="stat-num">${plan.risk.maxLossUsd}</div>
+                        <div className="stat-lbl">Max loss</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
+                    <span className={`strategy-badge ${RISK_BADGE[plan.riskScore]}`}>
+                      {RISK_LABEL[plan.riskScore]}
+                    </span>
+                    {!isExecuting && (
+                      <button className="strategy-select-btn">
+                        {isSelected ? '✓ Selected' : 'Select'}
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
 
-          <button
-            className="btn-primary"
-            onClick={() =>
-              startTransition(() => {
-                executeplan(selectedPlan.planId).catch((e) =>
-                  setError(e instanceof Error ? e.message : String(e))
-                );
-              })
-            }
-          >
-            <span>EXECUTE PLAN</span>
-            <span className="btn-arrow">→</span>
-          </button>
-
-          <div style={{ marginTop: 8 }}>
-            <button className="btn-ghost" onClick={() => setStep('intent')}>
-              ← REVISE INTENT
+          {step === 'strategies' && (
+            <button className="btn-ghost" style={{ width: '100%' }} onClick={() => { setStep('idle'); setPlanRes(null); }}>
+              ← Change my request
             </button>
-          </div>
-
-          {error && <div className="error-bar">ERR {error}</div>}
+          )}
         </>
       )}
 
-      {/* ── EXECUTING ── */}
-      {(step === 'executing' || step === 'position') && execution && (
-        <div className="panel">
-          <div className="panel-header">
-            <span className="panel-title">EXECUTION</span>
-            <span className="panel-id">{execution.executionId}</span>
+      {/* ── screen 3: execution (continues inline) ── */}
+      {showExecution && (
+        <div className="exec-box" style={{ marginTop: 16 }}>
+          <div className="exec-title">
+            {step === 'done' ? 'Position opened ✓' : 'Opening your position…'}
           </div>
-          <div className="panel-body">
-            {execution.steps.map((s, i) => (
-              <div className="exec-step" key={i}>
-                <div className={`exec-indicator ${s.status}`} />
-                <div className="exec-type">{s.type.toUpperCase()}</div>
-                <div>
-                  <div className="exec-status">{s.status.toUpperCase()}</div>
-                  {s.txHash && (
-                    <div className="exec-hash">{shortAddr(s.txHash)}</div>
-                  )}
+          <div className="exec-subtitle">
+            {step === 'done'
+              ? 'Your funds are now earning yield.'
+              : 'Confirm each step in your wallet when prompted.'}
+          </div>
+
+          {execution ? (
+            <div className="exec-steps">
+              {execution.steps.map((s, i) => (
+                <div className="exec-step" key={i}>
+                  <div className={`exec-icon ${s.status}`}>
+                    {s.status === 'submitted'
+                      ? <span className="spinning">◌</span>
+                      : stepIcon(s.status)}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div className={`exec-step-label${s.status === 'pending' ? ' pending' : ''}`}>
+                      {stepLabel(s.type)}
+                    </div>
+                    {s.txHash && (
+                      <div className="exec-step-hash">{s.txHash.slice(0, 10)}…{s.txHash.slice(-6)}</div>
+                    )}
+                  </div>
+                  <div className="exec-step-status">
+                    {s.status === 'confirmed' ? 'Done' : s.status === 'submitted' ? 'Confirming…' : s.status === 'failed' ? 'Failed' : ''}
+                  </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <div style={{ padding: '12px 0', color: 'var(--text-faint)', fontSize: 13 }}>
+              Waiting for confirmation…
+            </div>
+          )}
         </div>
       )}
 
-      {/* ── POSITION ── */}
-      {step === 'position' && execution?.position && (
-        <div className="panel" style={{ marginTop: 12 }}>
-          <div className="panel-header">
-            <span className="panel-title">POSITION</span>
-            <span className="panel-id" style={{ color: 'var(--green)' }}>● ACTIVE</span>
+      {/* ── position card ── */}
+      {step === 'done' && execution?.position && (
+        <div className="position-box">
+          <div className="position-header">
+            <span className="position-title">Your position</span>
+            <span className="in-range-badge">Earning</span>
           </div>
-          <div className="panel-body">
-            <div className="position-row">
-              <span className="pos-key">POOL</span>
-              <span className="pos-val">{execution.position.pool}</span>
+          <div className="position-stats">
+            <div className="position-stat">
+              <div className="position-stat-val">{fmt(execution.position.token0Amount, 6)} USDC</div>
+              <div className="position-stat-lbl">Deposited</div>
             </div>
-            <div className="position-row">
-              <span className="pos-key">TOKEN 0</span>
-              <span className="pos-val">{execution.position.token0Amount}</span>
+            <div className="position-stat">
+              <div className="position-stat-val">{fmt(execution.position.token1Amount, 18)} WETH</div>
+              <div className="position-stat-lbl">Converted</div>
             </div>
-            <div className="position-row">
-              <span className="pos-key">TOKEN 1</span>
-              <span className="pos-val">{execution.position.token1Amount}</span>
-            </div>
-            {execution.position.liquidity && (
-              <div className="position-row">
-                <span className="pos-key">LIQUIDITY</span>
-                <span className="pos-val">{execution.position.liquidity}</span>
-              </div>
-            )}
           </div>
+          <button
+            className="btn-ghost"
+            style={{ width: '100%' }}
+            onClick={() => { setStep('idle'); setPlanRes(null); setExecution(null); setGoal(''); }}
+          >
+            + New position
+          </button>
         </div>
       )}
 
-      {/* ── executing loading state (no execution data yet) ── */}
-      {step === 'executing' && !execution && (
-        <div className="panel">
-          <div className="panel-body">
-            <StatusRow label="SUBMITTING TRANSACTION..." />
-          </div>
-        </div>
-      )}
     </div>
   );
 }

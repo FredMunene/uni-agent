@@ -6,6 +6,7 @@ import { mainnet, base } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { buildExecutionDigest, buildExecutorExecution } from '@/lib/onchain';
 import type { MonitorSnapshot } from '@/lib/services/monitor';
+import { deriveRebalanceIntentDraft } from '@/lib/services/rebalance';
 
 function useResolvedName(address?: `0x${string}`) {
   const { data: baseName } = useEnsName({ address, chainId: base.id });
@@ -230,7 +231,7 @@ export default function Page() {
     };
   }, [execution?.position?.positionId, step]);
 
-  async function handleSubmit() {
+  async function submitIntent(nextGoal = goal, nextAmount = amount) {
     if (!address) return;
     setError('');
     setStep('planning');
@@ -245,8 +246,8 @@ export default function Page() {
         body: JSON.stringify({
           userAddress: address,
           inputToken: 'USDC',
-          inputAmount: String(Math.floor(amountNum * 1_000_000)),
-          goal: goal || `Earn yield on ${amount} USDC with ${risk} risk`,
+          inputAmount: String(Math.floor(Number(nextAmount) * 1_000_000)),
+          goal: nextGoal || `Earn yield on ${nextAmount} USDC with ${risk} risk`,
           risk,
           constraints: { maxSlippageBps: 50, deadlineSeconds: 900 },
         }),
@@ -267,6 +268,18 @@ export default function Page() {
       setError(e instanceof Error ? e.message : 'Something went wrong.');
       setStep('idle');
     }
+  }
+
+  async function handleSubmit() {
+    await submitIntent();
+  }
+
+  async function handleRebalance() {
+    if (!execution?.position) return;
+    const draft = deriveRebalanceIntentDraft(execution.position);
+    setGoal(draft.goal);
+    setAmount(draft.amount);
+    await submitIntent(draft.goal, draft.amount);
   }
 
   async function handleSelect(planId: string) {
@@ -617,6 +630,15 @@ export default function Page() {
             }}>
               monitor: {monitor.inRange ? 'healthy' : 'rebalance suggested'} · drift {monitor.driftPercent}%
             </div>
+          )}
+          {monitor && !monitor.inRange && (
+            <button
+              className="btn-primary"
+              style={{ width: '100%', marginBottom: 8 }}
+              onClick={handleRebalance}
+            >
+              Rebalance now
+            </button>
           )}
           <button
             className="btn-ghost"

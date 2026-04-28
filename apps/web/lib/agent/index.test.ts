@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Intent } from '@uni-agent/shared';
-import { buildPlan } from './index';
+import { buildPlan, retryTransient } from './index';
 import type { AprSnapshot } from '../services/apr';
 
 function makeIntent(): Intent {
@@ -72,4 +72,18 @@ test('buildPlan uses live APR data for strategy outputs', () => {
   assert.equal(plans[1].estimatedNetApyBps, 1250);
   assert.equal(plans[2].estimatedNetApyBps, 1690);
   assert.match(plans[1].risk.notes, /Live APR/);
+});
+
+test('retryTransient retries on transient Gemini failures', async () => {
+  let attempts = 0;
+  const value = await retryTransient(async () => {
+    attempts += 1;
+    if (attempts < 3) {
+      throw new Error('503 Service Unavailable: temporarily unavailable');
+    }
+    return 'ok';
+  }, 3);
+
+  assert.equal(value, 'ok');
+  assert.equal(attempts, 3);
 });

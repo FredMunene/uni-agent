@@ -13,8 +13,9 @@ function getModel() {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error('GEMINI_API_KEY not set');
   const genAI = new GoogleGenerativeAI(key);
+  const model = process.env.GEMINI_MODEL?.trim() || 'gemini-2.5-flash';
   return genAI.getGenerativeModel({
-    model: 'gemini-2.0-flash',
+    model,
     tools: [{ functionDeclarations: tools }],
     systemInstruction: `You are a DeFi strategy planner for an agentic stablecoin router.
 
@@ -36,6 +37,27 @@ Rules:
 
 After calling all three tools, summarise the plan in plain text: steps, estimated gas, and one risk note.`,
   });
+}
+
+function isTransientGeminiError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /503 Service Unavailable|429 Too Many Requests|high demand|temporarily unavailable/i.test(message);
+}
+
+export async function retryTransient<T>(fn: () => Promise<T>, attempts = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt === attempts || !isTransientGeminiError(error)) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 750));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('Retry failed');
 }
 
 type ToolInput = Record<string, unknown>;
@@ -75,10 +97,11 @@ async function handleToolCall(name: string, args: ToolInput, userAddress: string
 }
 
 export async function generatePlan(intent: Intent): Promise<Plan[]> {
-  const chat = getModel().startChat();
-  const aprSnapshot = await getAprSnapshot();
+  return retryTransient(async () => {
+    const chat = getModel().startChat();
+    const aprSnapshot = await getAprSnapshot();
 
-  const userMessage = `
+    const userMessage = `
 Intent: ${intent.goal}
 Input: ${intent.inputAmount} units of ${intent.inputToken}
 User address: ${intent.userAddress}
@@ -88,25 +111,26 @@ Max slippage: ${intent.constraints.maxSlippageBps}bps
 Call get_swap_quote, then get_lp_params, then simulate_bundle, then summarise the plan.
 `.trim();
 
-  let response = await chat.sendMessage(userMessage);
-  const toolResults: Record<string, unknown> = {};
+    let response = await chat.sendMessage(userMessage);
+    const toolResults: Record<string, unknown> = {};
 
-  while (true) {
-    const calls = response.response.functionCalls();
-    if (!calls || calls.length === 0) break;
+    while (true) {
+      const calls = response.response.functionCalls();
+      if (!calls || calls.length === 0) break;
 
-    const responses = await Promise.all(
-      calls.map(async (call) => {
-        const result = await handleToolCall(call.name, call.args as ToolInput, intent.userAddress);
-        toolResults[call.name] = result;
-        return { functionResponse: { name: call.name, response: result as object } };
-      })
-    );
+      const responses = await Promise.all(
+        calls.map(async (call) => {
+          const result = await handleToolCall(call.name, call.args as ToolInput, intent.userAddress);
+          toolResults[call.name] = result;
+          return { functionResponse: { name: call.name, response: result as object } };
+        })
+      );
 
-    response = await chat.sendMessage(responses);
-  }
+      response = await chat.sendMessage(responses);
+    }
 
-  return buildPlan(intent, toolResults, response.response.text(), aprSnapshot);
+    return buildPlan(intent, toolResults, response.response.text(), aprSnapshot);
+  });
 }
 
 export function buildPlan(

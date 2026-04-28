@@ -92,14 +92,13 @@ contract IntentVaultTest is Test {
         assertTrue(refunded);
     }
 
-    function test_refundByExecutor() public {
+    function test_revert_refundByExecutor() public {
         vm.prank(user);
         vault.deposit(address(token), amount, intentId);
 
         vm.prank(executor);
+        vm.expectRevert(IntentVault.OnlyUserCanRefund.selector);
         vault.refund(intentId);
-
-        assertEq(token.balanceOf(user), amount * 3); // full balance restored
     }
 
     function test_revert_refundAfterRelease() public {
@@ -119,7 +118,7 @@ contract IntentVaultTest is Test {
         vault.deposit(address(token), amount, intentId);
 
         vm.prank(attacker);
-        vm.expectRevert(IntentVault.Unauthorized.selector);
+        vm.expectRevert(IntentVault.OnlyUserCanRefund.selector);
         vault.refund(intentId);
     }
 

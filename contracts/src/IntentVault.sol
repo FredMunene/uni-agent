@@ -26,6 +26,7 @@ contract IntentVault is ReentrancyGuard {
     error Unauthorized();
     error AlreadySettled();
     error NothingToRefund();
+    error OnlyUserCanRefund();
 
     constructor(address _executor) {
         executor = _executor;
@@ -57,8 +58,7 @@ contract IntentVault is ReentrancyGuard {
         Deposit storage d = deposits[intentId];
         if (d.user == address(0)) revert NothingToRefund();
         if (d.released || d.refunded) revert AlreadySettled();
-        // Allow refund by the user or the executor (e.g. on failure)
-        if (msg.sender != d.user && msg.sender != executor) revert Unauthorized();
+        if (msg.sender != d.user) revert OnlyUserCanRefund();
         d.refunded = true;
         IERC20(d.token).safeTransfer(d.user, d.amount);
         emit Refunded(intentId, d.user, d.amount);

@@ -11,6 +11,8 @@ type PlanLike = {
   steps: ReadonlyArray<{ type: string }>;
 };
 
+const PLAN_HASH_PATTERN = /^0x[a-fA-F0-9]{64}$/;
+
 export function assertExecutionAuthorized(
   intent: Intent,
   userAddress: string,
@@ -62,6 +64,10 @@ export async function startExecution(
 
   if (!submittedPlanHash) {
     return { ok: false as const, status: 400, error: 'Missing plan hash' };
+  }
+
+  if (!PLAN_HASH_PATTERN.test(submittedPlanHash)) {
+    return { ok: false as const, status: 400, error: 'Invalid plan hash format' };
   }
 
   if (!plan.planHash || computePlanHash(plan as any) !== plan.planHash) {

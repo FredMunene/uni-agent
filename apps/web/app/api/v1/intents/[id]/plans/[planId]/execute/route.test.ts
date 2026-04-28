@@ -229,13 +229,45 @@ test('startExecution rejects a submitted plan hash that does not match the store
     intent.intentId,
     'plan_123',
     intent.userAddress,
-    '0x1234',
+    '0x1111111111111111111111111111111111111111111111111111111111111111',
   );
 
   assert.equal(outcome.ok, false);
   if (!outcome.ok) {
     assert.equal(outcome.status, 409);
     assert.match(outcome.error, /Submitted plan hash mismatch/);
+  }
+});
+
+test('startExecution rejects a malformed submitted plan hash', async () => {
+  const intent = makeIntent();
+  const store = {
+    intents: {
+      get: async () => intent,
+      set: async () => undefined,
+    },
+    plans: {
+      get: async () => [
+        makeStoredPlan(intent.intentId),
+      ],
+    },
+    executions: {
+      set: async () => undefined,
+    },
+  };
+
+  const outcome = await startExecution(
+    store,
+    intent.intentId,
+    'plan_123',
+    intent.userAddress,
+    'not-a-plan-hash',
+  );
+
+  assert.equal(outcome.ok, false);
+  if (!outcome.ok) {
+    assert.equal(outcome.status, 400);
+    assert.match(outcome.error, /Invalid plan hash format/);
   }
 });
 

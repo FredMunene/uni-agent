@@ -4,6 +4,8 @@ import type { Intent, Plan, Execution } from '@uni-agent/shared';
 const redis = Redis.fromEnv();
 
 const TTL = 3600; // 1 hour — demo data auto-expires
+type ExecutionRecord = Execution & { intentId: string };
+const executionIntentKey = (intentId: string) => `exec:intent:${intentId}`;
 
 export const store = {
   intents: {
@@ -19,13 +21,24 @@ export const store = {
       redis.get<Plan[]>(`plans:${intentId}`).then((p) => p ?? []),
   },
   executions: {
-    set: (id: string, exec: Execution) =>
-      redis.set(`exec:${id}`, exec, { ex: TTL }),
+    set: async (id: string, exec: ExecutionRecord) => {
+      await redis.set(`exec:${id}`, exec, { ex: TTL });
+      await redis.set(executionIntentKey(exec.intentId), id, { ex: TTL });
+    },
     get: (id: string) =>
-      redis.get<Execution>(`exec:${id}`),
+      redis.get<ExecutionRecord>(`exec:${id}`),
+    findByIntent: async (intentId: string) => {
+      const execId = await redis.get<string>(executionIntentKey(intentId));
+      if (!execId) return null;
+      return redis.get<ExecutionRecord>(`exec:${execId}`);
+    },
     update: async (id: string, patch: Partial<Execution>) => {
-      const existing = await redis.get<Execution>(`exec:${id}`);
-      if (existing) await redis.set(`exec:${id}`, { ...existing, ...patch }, { ex: TTL });
+      const existing = await redis.get<ExecutionRecord>(`exec:${id}`);
+      if (existing) {
+        const next = { ...existing, ...patch };
+        await redis.set(`exec:${id}`, next, { ex: TTL });
+        await redis.set(executionIntentKey(existing.intentId), id, { ex: TTL });
+      }
     },
   },
 };

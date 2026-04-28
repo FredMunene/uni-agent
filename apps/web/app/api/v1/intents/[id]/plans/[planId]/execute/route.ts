@@ -4,6 +4,11 @@ import type { Intent } from '@uni-agent/shared';
 import { ExecuteSchema } from '@uni-agent/shared';
 import { store } from '@/lib/store';
 
+type PlanLike = {
+  planId: string;
+  steps: Array<{ type: string }>;
+};
+
 export function assertExecutionAuthorized(
   intent: Intent,
   userAddress: string,
@@ -23,7 +28,7 @@ type StoreLike = {
     set(id: string, intent: Intent): Promise<unknown>;
   };
   plans: {
-    get(intentId: string): Promise<unknown[]>;
+    get(intentId: string): Promise<PlanLike[]>;
   };
   executions: {
     findByIntent?(intentId: string): Promise<unknown | null>;
@@ -49,7 +54,7 @@ export async function startExecution(
   }
 
   const plans = await storeApi.plans.get(intentId);
-  const plan = plans?.find((p: any) => p.planId === planId);
+  const plan = plans?.find((p) => p.planId === planId);
   if (!plan) return { ok: false as const, status: 404, error: 'Plan not found' };
 
   if (storeApi.executions.findByIntent) {

@@ -69,6 +69,25 @@ contract IntentExecutorTest is Test {
         executor.execute(params);
     }
 
+    function test_execute_reverts_for_wrong_caller_even_with_valid_signature() public {
+        IntentExecutor.Step[] memory steps = _buildSteps();
+        bytes32 planHash = keccak256(abi.encode(steps));
+        bytes memory signature = _signExecution(userPk, intentId, user, deadline, planHash);
+
+        IntentExecutor.ExecutionParams memory params = IntentExecutor.ExecutionParams({
+            intentId: intentId,
+            user: user,
+            deadline: deadline,
+            planHash: planHash,
+            signature: signature,
+            steps: steps
+        });
+
+        vm.prank(attacker);
+        vm.expectRevert(IntentExecutor.CallerMismatch.selector);
+        executor.execute(params);
+    }
+
     function _buildSteps() internal view returns (IntentExecutor.Step[] memory steps) {
         steps = new IntentExecutor.Step[](1);
         steps[0] = IntentExecutor.Step({

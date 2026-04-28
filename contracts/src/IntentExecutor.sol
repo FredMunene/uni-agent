@@ -45,6 +45,7 @@ contract IntentExecutor is ReentrancyGuard {
     error PlanHashMismatch();
     error EmptyPlan();
     error InvalidSignature();
+    error CallerMismatch();
     error TargetNotAllowed(address target);
     error StepFailed(uint256 index);
     error Unauthorized();
@@ -78,6 +79,7 @@ contract IntentExecutor is ReentrancyGuard {
         );
         address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(digest), params.signature);
         if (recovered != params.user) revert InvalidSignature();
+        if (msg.sender != params.user) revert CallerMismatch();
 
         emit ExecutionStarted(params.intentId, params.user);
 

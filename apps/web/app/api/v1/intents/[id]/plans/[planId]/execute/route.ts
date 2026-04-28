@@ -3,10 +3,12 @@ import { nanoid } from 'nanoid';
 import type { Intent } from '@uni-agent/shared';
 import { ExecuteSchema } from '@uni-agent/shared';
 import { store } from '@/lib/store';
+import { computePlanHash } from '../../../plan/route';
 
 type PlanLike = {
   planId: string;
-  steps: Array<{ type: string }>;
+  planHash?: string;
+  steps: ReadonlyArray<{ type: string }>;
 };
 
 export function assertExecutionAuthorized(
@@ -57,6 +59,10 @@ export async function startExecution(
   const plan = plans?.find((p) => p.planId === planId);
   if (!plan) return { ok: false as const, status: 404, error: 'Plan not found' };
 
+  if (!plan.planHash || computePlanHash(plan as any) !== plan.planHash) {
+    return { ok: false as const, status: 409, error: 'Plan integrity mismatch' };
+  }
+
   if (storeApi.executions.findByIntent) {
     const existing = await storeApi.executions.findByIntent(intentId);
     if (existing && existing.status !== 'failed') {
@@ -69,6 +75,7 @@ export async function startExecution(
     executionId,
     planId,
     intentId,
+    planHash: plan.planHash,
     status: 'submitted',
     steps: plan.steps.map((s: any) => ({ type: s.type, status: 'pending' as const })),
     createdAt: new Date().toISOString(),

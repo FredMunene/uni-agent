@@ -1,43 +1,93 @@
 import { Redis } from '@upstash/redis';
 import type { Intent, Plan, Execution } from '@uni-agent/shared';
 
-const redis = Redis.fromEnv();
-
 const TTL = 3600; // 1 hour — demo data auto-expires
 type ExecutionRecord = Execution & { intentId: string };
 const executionIntentKey = (intentId: string) => `exec:intent:${intentId}`;
 
+type MemoryRecord<T> = {
+  value: T;
+  expiresAt: number;
+};
+
+const memory = {
+  intents: new Map<string, MemoryRecord<Intent>>(),
+  plans: new Map<string, MemoryRecord<Plan[]>>(),
+  executions: new Map<string, MemoryRecord<ExecutionRecord>>(),
+  executionByIntent: new Map<string, MemoryRecord<string>>(),
+};
+
+const hasRedisEnv = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
+const redis = hasRedisEnv ? Redis.fromEnv() : null;
+
+function nowPlusTtl(): number {
+  return Date.now() + TTL * 1000;
+}
+
+function getMemory<T>(bucket: Map<string, MemoryRecord<T>>, key: string): T | null {
+  const entry = bucket.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiresAt) {
+    bucket.delete(key);
+    return null;
+  }
+  return entry.value;
+}
+
+function setMemory<T>(bucket: Map<string, MemoryRecord<T>>, key: string, value: T): void {
+  bucket.set(key, { value, expiresAt: nowPlusTtl() });
+}
+
+async function write<T>(key: string, value: T, memoryBucket: Map<string, MemoryRecord<T>>) {
+  if (redis) {
+    try {
+      await redis.set(key, value, { ex: TTL });
+      return;
+    } catch {
+      // Fall through to memory for local dev / transient upstream failures.
+    }
+  }
+  setMemory(memoryBucket, key, value);
+}
+
+async function read<T>(key: string, memoryBucket: Map<string, MemoryRecord<T>>): Promise<T | null> {
+  if (redis) {
+    try {
+      const value = await redis.get<T>(key);
+      if (value !== null && value !== undefined) return value;
+    } catch {
+      // Fall through to memory for local dev / transient upstream failures.
+    }
+  }
+  return getMemory(memoryBucket, key);
+}
+
 export const store = {
   intents: {
-    set: (id: string, intent: Intent) =>
-      redis.set(`intent:${id}`, intent, { ex: TTL }),
-    get: (id: string) =>
-      redis.get<Intent>(`intent:${id}`),
+    set: (id: string, intent: Intent) => write(`intent:${id}`, intent, memory.intents),
+    get: (id: string) => read(`intent:${id}`, memory.intents),
   },
   plans: {
-    set: (intentId: string, plans: Plan[]) =>
-      redis.set(`plans:${intentId}`, plans, { ex: TTL }),
-    get: (intentId: string) =>
-      redis.get<Plan[]>(`plans:${intentId}`).then((p) => p ?? []),
+    set: (intentId: string, plans: Plan[]) => write(`plans:${intentId}`, plans, memory.plans),
+    get: async (intentId: string) => (await read<Plan[]>(`plans:${intentId}`, memory.plans)) ?? [],
   },
   executions: {
     set: async (id: string, exec: ExecutionRecord) => {
-      await redis.set(`exec:${id}`, exec, { ex: TTL });
-      await redis.set(executionIntentKey(exec.intentId), id, { ex: TTL });
+      await write(`exec:${id}`, exec, memory.executions);
+      await write(executionIntentKey(exec.intentId), id, memory.executionByIntent);
     },
-    get: (id: string) =>
-      redis.get<ExecutionRecord>(`exec:${id}`),
+    get: (id: string) => read(`exec:${id}`, memory.executions),
     findByIntent: async (intentId: string) => {
-      const execId = await redis.get<string>(executionIntentKey(intentId));
+      const execId = (await read<string>(executionIntentKey(intentId), memory.executionByIntent)) ?? null;
       if (!execId) return null;
-      return redis.get<ExecutionRecord>(`exec:${execId}`);
+      return read<ExecutionRecord>(`exec:${execId}`, memory.executions);
     },
     update: async (id: string, patch: Partial<Execution>) => {
-      const existing = await redis.get<ExecutionRecord>(`exec:${id}`);
+      const existing = await read<ExecutionRecord>(`exec:${id}`, memory.executions);
       if (existing) {
         const next = { ...existing, ...patch };
-        await redis.set(`exec:${id}`, next, { ex: TTL });
-        await redis.set(executionIntentKey(existing.intentId), id, { ex: TTL });
+        await write(`exec:${id}`, next, memory.executions);
+        await write(executionIntentKey(existing.intentId), id, memory.executionByIntent);
       }
     },
   },

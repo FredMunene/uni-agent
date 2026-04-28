@@ -4,6 +4,8 @@ pragma solidity ^0.8.24;
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IPositionRegistry} from "./IPositionRegistry.sol";
 
 contract IntentExecutor is ReentrancyGuard {
@@ -26,6 +28,7 @@ contract IntentExecutor is ReentrancyGuard {
         address user;
         uint256 deadline;
         bytes32 planHash;     // hash of steps — user signed this
+        bytes signature;      // signature over the execution digest
         Step[] steps;
     }
 
@@ -40,6 +43,8 @@ contract IntentExecutor is ReentrancyGuard {
 
     error DeadlineExpired();
     error PlanHashMismatch();
+    error EmptyPlan();
+    error InvalidSignature();
     error TargetNotAllowed(address target);
     error StepFailed(uint256 index);
     error Unauthorized();
@@ -56,9 +61,23 @@ contract IntentExecutor is ReentrancyGuard {
 
     function execute(ExecutionParams calldata params) external nonReentrant {
         if (block.timestamp > params.deadline) revert DeadlineExpired();
+        if (params.steps.length == 0) revert EmptyPlan();
 
         bytes32 computedHash = keccak256(abi.encode(params.steps));
         if (computedHash != params.planHash) revert PlanHashMismatch();
+
+        bytes32 digest = keccak256(
+            abi.encode(
+                block.chainid,
+                address(this),
+                params.intentId,
+                params.user,
+                params.deadline,
+                params.planHash
+            )
+        );
+        address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(digest), params.signature);
+        if (recovered != params.user) revert InvalidSignature();
 
         emit ExecutionStarted(params.intentId, params.user);
 

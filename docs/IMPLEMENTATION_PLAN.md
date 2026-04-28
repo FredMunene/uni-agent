@@ -20,6 +20,7 @@ Hackathon ends: May 6, 2026. Today: April 28.
 - [x] Execution route binds owner, lifecycle, duplicate, and integrity checks
 - [x] Execution state transitions fail safe on persistence errors
 - [x] Execution payloads require a valid plan hash format
+- [x] Execution requests are signed in-wallet and verified server-side
 - [x] Intent planning and execution helpers have tests
 - [x] Plan integrity validation rejects tampered execution payloads
 - [x] Execution duplicate submissions are rejected in the live store
@@ -192,7 +193,6 @@ Hardening targets for v0.1:
 
 To make the testnet version complete, the remaining work is mostly product integration, not core security plumbing:
 
-- wire the real wallet signature flow into `permit2Signature`
 - replace the placeholder transaction execution with actual wallet-signed calls
 - finish the APR-backed 3-strategy flow in the current UI if any branch is still stubbed
 - validate the monitor/rebalance loop end to end on testnet

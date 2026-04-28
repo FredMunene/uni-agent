@@ -2,6 +2,8 @@ export type RiskLevel = 'low' | 'medium' | 'high';
 export type StepType = 'swap' | 'add_liquidity' | 'supply' | 'borrow' | 'bridge';
 export type StepStatus = 'pending' | 'submitted' | 'confirmed' | 'failed' | 'skipped';
 export type IntentStatus = 'created' | 'planning' | 'planned' | 'executing' | 'completed' | 'failed';
+export type StrategyLabel = 'conservative' | 'balanced' | 'aggressive';
+export type SolverStatus = 'active' | 'slashed' | 'withdrawn';
 
 export interface Intent {
   intentId: string;
@@ -42,6 +44,7 @@ export interface PlanStep {
 export interface Plan {
   planId: string;
   intentId: string;
+  strategy: StrategyLabel;
   label: string;
   estimatedNetApyBps: number;
   estimatedGasUsd: string;
@@ -52,6 +55,15 @@ export interface Plan {
     notes: string;
   };
   createdAt: string;
+  // solver fields — present when submitted by a registered solver
+  solver?: SolverMeta;
+}
+
+export interface SolverMeta {
+  solverAddress: string;    // on-chain address, receives fee on win
+  solverName: string;       // human-readable label e.g. "Gemini-LP-v1"
+  bidBondWei: string;       // bid bond locked on strategy submission
+  validUntil: string;       // ISO timestamp — strategy expires after this
 }
 
 export interface SwapQuote {

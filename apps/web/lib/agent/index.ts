@@ -143,7 +143,8 @@ function buildPlan(intent: Intent, toolResults: Record<string, unknown>, agentSu
   return [{
     planId: `plan_${nanoid(8)}`,
     intentId: intent.intentId,
-    label: 'USDC/WETH LP on Base (swap → add_liquidity)',
+    strategy: 'balanced' as const,
+    label: 'USDC/WETH LP — Balanced Growth',
     estimatedNetApyBps: 480,
     estimatedGasUsd: (simulation?.gasUsd as string | undefined) ?? '1.50',
     riskScore: intent.risk,

@@ -242,6 +242,7 @@ export default function Page() {
   }
 
   async function handleSelect(planId: string) {
+    const plan = planRes?.plans.find((p) => p.planId === planId);
     setSelectedId(planId);
     setStep('executing');
     setError('');
@@ -250,7 +251,11 @@ export default function Page() {
       const res = await fetch(api(`/v1/intents/${intentId}/plans/${planId}/execute`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ permit2Signature: '0x', userAddress: address }),
+        body: JSON.stringify({
+          permit2Signature: '0x',
+          userAddress: address,
+          planHash: plan?.planHash,
+        }),
       });
       if (!res.ok) throw new Error('Execution failed to start.');
       const { executionId } = await res.json() as { executionId: string };
@@ -386,6 +391,21 @@ export default function Page() {
                         <div className="stat-lbl">Max loss</div>
                       </div>
                     </div>
+                    {plan.planHash && (
+                      <div style={{
+                        marginTop: 12,
+                        padding: '8px 10px',
+                        border: '1px solid var(--border)',
+                        borderRadius: 12,
+                        background: 'var(--surface-soft)',
+                        fontFamily: 'var(--mono)',
+                        fontSize: 11,
+                        color: 'var(--text-faint)',
+                        wordBreak: 'break-all',
+                      }}>
+                        planHash: {plan.planHash}
+                      </div>
+                    )}
                   </div>
                   <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8 }}>
                     <span className={`strategy-badge ${RISK_BADGE[plan.riskScore]}`}>
@@ -413,7 +433,7 @@ export default function Page() {
       {/* ── screen 3: execution (continues inline) ── */}
       {showExecution && (
         <div className="exec-box" style={{ marginTop: 16 }}>
-          <div className="exec-title">
+            <div className="exec-title">
             {step === 'done' ? 'Position opened ✓' : 'Opening your position…'}
           </div>
           <div className="exec-subtitle">
@@ -421,6 +441,28 @@ export default function Page() {
               ? 'Your funds are now earning yield.'
               : 'Confirm each step in your wallet when prompted.'}
           </div>
+
+          {selectedId && (
+            <div style={{
+              marginBottom: 12,
+              padding: '8px 10px',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              background: 'var(--surface-soft)',
+              fontFamily: 'var(--mono)',
+              fontSize: 11,
+              color: 'var(--text-faint)',
+              wordBreak: 'break-all',
+            }}>
+              selected plan: {selectedId}
+              {planRes?.plans.find((p) => p.planId === selectedId)?.planHash ? (
+                <>
+                  <br />
+                  planHash: {planRes.plans.find((p) => p.planId === selectedId)?.planHash}
+                </>
+              ) : null}
+            </div>
+          )}
 
           {execution ? (
             <div className="exec-steps">

@@ -44,6 +44,7 @@ export interface PlanStep {
 export interface Plan {
   planId: string;
   intentId: string;
+  planHash?: string;
   strategy: StrategyLabel;
   label: string;
   estimatedNetApyBps: number;

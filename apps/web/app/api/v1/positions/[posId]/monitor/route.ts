@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { createPublicClient, http } from 'viem';
 import { baseSepolia } from 'viem/chains';
+import { marketPoolLabel } from '@/lib/marketPresentation';
 import { deriveMonitorSnapshot } from '@/lib/services/monitor';
 import { positionRegistryAbi } from '@/lib/onchain';
 
@@ -36,7 +37,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ posId: 
 
     const snapshot = deriveMonitorSnapshot({
       positionId: posId,
-      pool: 'USDC/WETH 0.05%',
+      pool: marketPoolLabel(),
       token0Amount: position.amount0.toString(),
       token1Amount: position.amount1.toString(),
       liquidity: position.liquidity.toString(),

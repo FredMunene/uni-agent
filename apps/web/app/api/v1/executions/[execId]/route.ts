@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { nanoid } from 'nanoid';
 import type { Plan } from '@uni-agent/shared';
+import { marketPoolLabel } from '@/lib/marketPresentation';
 import { store } from '@/lib/store';
 
 function simulatedExecution(raw: any) {
@@ -24,7 +25,7 @@ function simulatedExecution(raw: any) {
       steps,
       position: {
         positionId: `pos_${raw.executionId.slice(5)}`,
-        pool: 'USDC/WETH 0.05%',
+        pool: marketPoolLabel(),
         token0Amount: plan.steps[0]?.amountIn ?? '0',
         token1Amount: plan.steps[0]?.estimatedAmountOut ?? '0',
         liquidity: '847392918274',

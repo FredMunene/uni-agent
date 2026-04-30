@@ -8,6 +8,10 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {MessageHashUtils} from "@openzeppelin/contracts/utils/cryptography/MessageHashUtils.sol";
 import {IPositionRegistry} from "./IPositionRegistry.sol";
 
+interface IIntentRegistry {
+    function fulfillIntent(bytes32 intentId, bytes4 builderCode) external payable;
+}
+
 contract IntentExecutor is ReentrancyGuard {
     using SafeERC20 for IERC20;
 
@@ -15,7 +19,7 @@ contract IntentExecutor is ReentrancyGuard {
 
     struct Step {
         StepType stepType;
-        address target;       // allowlisted contract to call
+        address target;
         address tokenIn;
         address tokenOut;
         uint256 amountIn;
@@ -27,9 +31,14 @@ contract IntentExecutor is ReentrancyGuard {
         bytes32 intentId;
         address user;
         uint256 deadline;
-        bytes32 planHash;     // hash of steps — user signed this
-        bytes signature;      // signature over the execution digest
-        Step[] steps;
+        bytes32 planHash;
+        bytes   signature;
+        Step[]  steps;
+        // Optional registry settlement.
+        // Set registryAddress = address(0) to skip.
+        // When set, the ETH sent with execute() is forwarded as the protocol fee.
+        address registryAddress;
+        bytes4  builderCode;
     }
 
     address public immutable owner;
@@ -40,6 +49,7 @@ contract IntentExecutor is ReentrancyGuard {
     event StepExecuted(bytes32 indexed intentId, uint256 stepIndex, StepType stepType);
     event ExecutionCompleted(bytes32 indexed intentId);
     event ExecutionFailed(bytes32 indexed intentId, uint256 stepIndex, bytes reason);
+    event RegistrySettled(bytes32 indexed intentId, address registry, uint256 fee);
 
     error DeadlineExpired();
     error PlanHashMismatch();
@@ -49,9 +59,10 @@ contract IntentExecutor is ReentrancyGuard {
     error TargetNotAllowed(address target);
     error StepFailed(uint256 index);
     error Unauthorized();
+    error RegistryCallFailed();
 
     constructor(address _registry) {
-        owner = msg.sender;
+        owner    = msg.sender;
         registry = IPositionRegistry(_registry);
     }
 
@@ -60,24 +71,27 @@ contract IntentExecutor is ReentrancyGuard {
         allowedTargets[target] = allowed;
     }
 
-    function execute(ExecutionParams calldata params) external nonReentrant {
+    /// @notice Execute a signed plan. If registryAddress is set, forwards
+    ///         msg.value to IntentRegistry.fulfillIntent as the protocol fee.
+    function execute(ExecutionParams calldata params) external payable nonReentrant {
         if (block.timestamp > params.deadline) revert DeadlineExpired();
         if (params.steps.length == 0) revert EmptyPlan();
 
         bytes32 computedHash = keccak256(abi.encode(params.steps));
         if (computedHash != params.planHash) revert PlanHashMismatch();
 
-        bytes32 digest = keccak256(
-            abi.encode(
-                block.chainid,
-                address(this),
-                params.intentId,
-                params.user,
-                params.deadline,
-                params.planHash
-            )
+        bytes32 digest = keccak256(abi.encode(
+            block.chainid,
+            address(this),
+            params.intentId,
+            params.user,
+            params.deadline,
+            params.planHash
+        ));
+        address recovered = ECDSA.recover(
+            MessageHashUtils.toEthSignedMessageHash(digest),
+            params.signature
         );
-        address recovered = ECDSA.recover(MessageHashUtils.toEthSignedMessageHash(digest), params.signature);
         if (recovered != params.user) revert InvalidSignature();
         if (msg.sender != params.user) revert CallerMismatch();
 
@@ -87,7 +101,6 @@ contract IntentExecutor is ReentrancyGuard {
             Step calldata step = params.steps[i];
             if (!allowedTargets[step.target]) revert TargetNotAllowed(step.target);
 
-            // Approve target to spend tokenIn
             if (step.tokenIn != address(0) && step.amountIn > 0) {
                 IERC20(step.tokenIn).forceApprove(step.target, step.amountIn);
             }
@@ -102,5 +115,14 @@ contract IntentExecutor is ReentrancyGuard {
         }
 
         emit ExecutionCompleted(params.intentId);
+
+        // Settle fee with IntentRegistry if wired. Forwards all msg.value as fee.
+        if (params.registryAddress != address(0) && msg.value > 0) {
+            IIntentRegistry(params.registryAddress).fulfillIntent{value: msg.value}(
+                params.intentId,
+                params.builderCode
+            );
+            emit RegistrySettled(params.intentId, params.registryAddress, msg.value);
+        }
     }
 }

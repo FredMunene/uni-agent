@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { Intent } from '@uni-agent/shared';
 import { buildPlan, retryTransient } from './index';
 import type { AprSnapshot } from '../services/apr';
+import { ACTIVE_MARKET } from '../markets';
 
 function makeIntent(): Intent {
   return {
@@ -71,7 +72,9 @@ test('buildPlan uses live APR data for strategy outputs', () => {
   assert.equal(plans[0].estimatedNetApyBps, 420);
   assert.equal(plans[1].estimatedNetApyBps, 1250);
   assert.equal(plans[2].estimatedNetApyBps, 1690);
-  assert.match(plans[1].risk.notes, /Live APR/);
+  assert.match(plans[1].risk.notes, new RegExp(ACTIVE_MARKET.label.replace('/', '\\/')));
+  assert.equal(plans[1].steps[0]?.fromToken, ACTIVE_MARKET.executionTokenIn);
+  assert.equal(plans[1].steps[0]?.toToken, ACTIVE_MARKET.executionTokenOut);
 });
 
 test('retryTransient retries on transient Gemini failures', async () => {

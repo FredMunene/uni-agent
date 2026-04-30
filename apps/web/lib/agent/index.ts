@@ -5,8 +5,9 @@ import { getLpParams } from '../services/lp';
 import { simulateBundle } from '../services/simulate';
 import { getAprSnapshot, type AprSnapshot } from '../services/apr';
 import { quoteCache } from '../services/quoteCache';
+import { ACTIVE_MARKET } from '../markets';
 import type { Intent, Plan, PlanStep } from '@uni-agent/shared';
-import { BASE_MAINNET, BASE_SEPOLIA, EXECUTION_CHAIN_ID, FULL_RANGE_TICKS, LP_FEE_TIERS, QUOTE_CHAIN_ID } from '@uni-agent/shared';
+import { FULL_RANGE_TICKS } from '@uni-agent/shared';
 import { nanoid } from 'nanoid';
 
 function getModel() {
@@ -19,21 +20,21 @@ function getModel() {
     tools: [{ functionDeclarations: tools }],
     systemInstruction: `You are a DeFi strategy planner for an agentic stablecoin router.
 
-Your job: given a user's financial intent, generate a concrete 2-step execution plan using Uniswap on Base.
+Your job: given a user's financial intent, generate a concrete 2-step execution plan using Uniswap on ${ACTIVE_MARKET.chainLabel}.
 
 The 2 steps you always produce:
-1. swap — convert half the input USDC to WETH using the Uniswap Trading API
-2. add_liquidity — add the USDC and WETH into a Uniswap v4 USDC/WETH 0.05% pool
+1. swap — convert half the input ${ACTIVE_MARKET.inputTokenSymbol} to ${ACTIVE_MARKET.outputTokenSymbol} using the Uniswap Trading API
+2. add_liquidity — add the ${ACTIVE_MARKET.inputTokenSymbol} and ${ACTIVE_MARKET.outputTokenSymbol} into a Uniswap v4 ${ACTIVE_MARKET.label} pool
 
 Rules:
 - Always call get_swap_quote first to get a real quote
 - Then call get_lp_params using the swap output as amount1Desired
 - Then call simulate_bundle to estimate gas
-- Split the input amount: 50% stays as USDC (token0), 50% is swapped to WETH (token1)
+- Split the input amount: 50% stays as ${ACTIVE_MARKET.inputTokenSymbol} (token0), 50% is swapped to ${ACTIVE_MARKET.outputTokenSymbol} (token1)
 - Use fullRange: true for the LP position
-- Use chainId ${QUOTE_CHAIN_ID} (Base mainnet) for get_swap_quote — the Trading API requires mainnet
-- Token addresses for quotes: USDC=${BASE_MAINNET.USDC}, WETH=${BASE_MAINNET.WETH}
-- Execution chain ID (for LP params and bundle): ${EXECUTION_CHAIN_ID}, LP fee: ${LP_FEE_TIERS.LOW}
+- Use chainId ${ACTIVE_MARKET.quoteChainId} (Base mainnet) for get_swap_quote — the Trading API requires mainnet
+- Token addresses for quotes: ${ACTIVE_MARKET.inputTokenSymbol}=${ACTIVE_MARKET.quoteTokenIn}, ${ACTIVE_MARKET.outputTokenSymbol}=${ACTIVE_MARKET.quoteTokenOut}
+- Execution chain ID (for LP params and bundle): ${ACTIVE_MARKET.executionChainId}, LP fee: ${ACTIVE_MARKET.fee}
 
 After calling all three tools, summarise the plan in plain text: steps, estimated gas, and one risk note.`,
   });
@@ -99,7 +100,7 @@ async function handleToolCall(name: string, args: ToolInput, userAddress: string
 export async function generatePlan(intent: Intent): Promise<Plan[]> {
   return retryTransient(async () => {
     const chat = getModel().startChat();
-    const aprSnapshot = await getAprSnapshot();
+    const aprSnapshot = await getAprSnapshot(ACTIVE_MARKET);
 
     const userMessage = `
 Intent: ${intent.goal}
@@ -171,9 +172,9 @@ export function buildPlan(
       stepId: 'step_001',
       type: 'add_liquidity',
       provider: 'stable_pool',
-      chainId: EXECUTION_CHAIN_ID,
-      fromToken: BASE_SEPOLIA.USDC,
-      toToken: BASE_SEPOLIA.USDC,
+      chainId: ACTIVE_MARKET.executionChainId,
+      fromToken: ACTIVE_MARKET.executionTokenIn,
+      toToken: ACTIVE_MARKET.executionTokenIn,
       token0AmountIn: fullAmount,
       token1AmountIn: '0',
       tickLower: FULL_RANGE_TICKS.tickLower,
@@ -187,9 +188,9 @@ export function buildPlan(
       stepId: 'step_001',
       type: 'swap',
       provider: 'dex',
-      chainId: EXECUTION_CHAIN_ID,
-      fromToken: BASE_SEPOLIA.USDC,
-      toToken: BASE_SEPOLIA.WETH,
+      chainId: ACTIVE_MARKET.executionChainId,
+      fromToken: ACTIVE_MARKET.executionTokenIn,
+      toToken: ACTIVE_MARKET.executionTokenOut,
       amountIn: halfAmount,
       estimatedAmountOut: wethOut,
       slippageBps: intent.constraints.maxSlippageBps,
@@ -198,9 +199,9 @@ export function buildPlan(
       stepId: 'step_002',
       type: 'add_liquidity',
       provider: 'dex_v4',
-      chainId: EXECUTION_CHAIN_ID,
-      fromToken: BASE_SEPOLIA.USDC,
-      toToken: BASE_SEPOLIA.WETH,
+      chainId: ACTIVE_MARKET.executionChainId,
+      fromToken: ACTIVE_MARKET.executionTokenIn,
+      toToken: ACTIVE_MARKET.executionTokenOut,
       token0AmountIn: halfAmount,
       token1AmountIn: wethOut,
       tickLower: fullTickLower,
@@ -214,9 +215,9 @@ export function buildPlan(
       stepId: 'step_001',
       type: 'swap',
       provider: 'dex',
-      chainId: EXECUTION_CHAIN_ID,
-      fromToken: BASE_SEPOLIA.USDC,
-      toToken: BASE_SEPOLIA.WETH,
+      chainId: ACTIVE_MARKET.executionChainId,
+      fromToken: ACTIVE_MARKET.executionTokenIn,
+      toToken: ACTIVE_MARKET.executionTokenOut,
       amountIn: halfAmount,
       estimatedAmountOut: wethOut,
       slippageBps: intent.constraints.maxSlippageBps,
@@ -225,9 +226,9 @@ export function buildPlan(
       stepId: 'step_002',
       type: 'add_liquidity',
       provider: 'dex_v4',
-      chainId: EXECUTION_CHAIN_ID,
-      fromToken: BASE_SEPOLIA.USDC,
-      toToken: BASE_SEPOLIA.WETH,
+      chainId: ACTIVE_MARKET.executionChainId,
+      fromToken: ACTIVE_MARKET.executionTokenIn,
+      toToken: ACTIVE_MARKET.executionTokenOut,
       token0AmountIn: halfAmount,
       token1AmountIn: wethOut,
       tickLower: tightTickLower,
@@ -247,7 +248,7 @@ export function buildPlan(
       steps: conservativeSteps,
       risk: {
         maxLossUsd: '0.00',
-        notes: `Stable pool APR from ${aprSnapshot.stable.project}/${aprSnapshot.stable.pool} via ${aprSnapshot.source}.`,
+        notes: `Stable reference APR for ${ACTIVE_MARKET.label} from ${aprSnapshot.stable.project}/${aprSnapshot.stable.pool} via ${aprSnapshot.source}.`,
       },
       createdAt: now,
       solver: solverMeta,
@@ -263,7 +264,7 @@ export function buildPlan(
       steps: balancedSteps,
       risk: {
         maxLossUsd: '4.20',
-        notes: `${agentSummary.slice(0, 140)} Live APR: ${aprSnapshot.balanced.apy.toFixed(2)}% (${aprSnapshot.source}).`,
+        notes: `${agentSummary.slice(0, 140)} Live APR for ${ACTIVE_MARKET.label}: ${aprSnapshot.balanced.apy.toFixed(2)}% (${aprSnapshot.source}).`,
       },
       createdAt: now,
       solver: solverMeta,
@@ -279,7 +280,7 @@ export function buildPlan(
       steps: aggressiveSteps,
       risk: {
         maxLossUsd: '24.00',
-        notes: `Concentrated range. Live APR baseline ${aprSnapshot.aggressive.apy.toFixed(2)}% from ${aprSnapshot.aggressive.pool}.`,
+        notes: `Concentrated ${ACTIVE_MARKET.label} range. Live APR baseline ${aprSnapshot.aggressive.apy.toFixed(2)}% from ${aprSnapshot.aggressive.pool}.`,
       },
       createdAt: now,
       solver: solverMeta,

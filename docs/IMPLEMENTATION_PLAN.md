@@ -149,6 +149,7 @@ Goal: Protocol watches the LP and surfaces rebalancing as a new intent when out 
 
 - [x] `lib/services/monitor.ts` derives in-range / drift status when tick bounds are available
 - [x] `/api/v1/positions/[posId]/monitor` can fall back to stored execution tick metadata before the live oracle is finished
+- [x] `/api/v1/positions/[posId]/monitor` prefers a live Uniswap v3 `slot0.tick` when `UNISWAP_V3_POOL_ADDRESS` is configured
 - [ ] `lib/services/monitor.ts` — `viem.readContract` on v4 PoolManager for current tick
 - [ ] Compare current tick to `tickLower` / `tickUpper` stored in Redis
 - [ ] `app/api/v1/positions/[posId]/monitor/route.ts` — returns `{ inRange, currentTick, tickLower, tickUpper, driftPercent }`
@@ -226,6 +227,13 @@ The build should be treated as staged productization, not a single launch.
 - v1: deploy the working product on Base mainnet once the v0 path is stable
 - v0.1: return to testnet and harden the system by closing safety gaps, edge cases, and execution risks
 - v2: redeploy the hardened system on Base mainnet
+
+Contract upgradeability for v1:
+
+- Wrap `IntentRegistry` in a UUPS proxy (OpenZeppelin `UUPSUpgradeable`)
+- Replace constructor with `initialize()` — owner, treasury, oracle set at init
+- Deploy via `ERC1967Proxy` so the contract address stays stable across logic upgrades
+- Add `_authorizeUpgrade` gated to `onlyOwner`
 
 Hardening targets for v0.1:
 

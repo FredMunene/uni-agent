@@ -10,10 +10,10 @@ Hackathon ends: May 6, 2026. Today: April 30.
 ```
 Protocol layer     ████████████░░░░  75%   API, types, plan hash, execution auth
 Solver layer       ████████░░░░░░░░  50%   Gemini 3-strategy loop, APR, bid meta
-Agent identity     ████░░░░░░░░░░░░  25%   Designed, docs updated, not yet wired
-Smart contract     ░░░░░░░░░░░░░░░░   0%   IntentRegistry.sol not yet written
+Agent identity     ████░░░░░░░░░░░░  25%   Designed, in contract, not wired to TS
+Smart contract     ██████████████░░  90%   Full contract + 50 tests — needs deploy
 On-chain exec      ████░░░░░░░░░░░░  25%   Calldata builders exist, txs not live
-Frontend           █████████████░░░  80%   Landing, risk-matched strategies, dedicated approval flow
+Frontend           █████████████░░░  80%   Landing, risk-matched strategies, approval flow
 Demo readiness     ████████░░░░░░░░  50%   Flow works, needs real txs + video
 ```
 
@@ -41,6 +41,16 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 - [x] Retry logic for transient Gemini 503 / 429 errors
 - [x] Risk-preferred strategy recommendation (`recommendedPlanId`)
 
+### Smart Contracts
+- [x] `IntentRegistry.sol` — full contract: registration, bid bond, intent lifecycle, fee settlement, reputation, slash, pause, treasury pull, admin setters
+- [x] `IntentExecutor.sol` — wired to IntentRegistry for fee settlement via builder code
+- [x] `IntentVault.sol`, `PositionRegistry.sol`, `MockLendingAdapter.sol`
+- [x] `Deploy.s.sol` — deploys all contracts, registers built-in Gemini solver
+- [x] 50 passing tests: registration, withdrawal, intent lifecycle, fulfillment, reputation, pause, setters, treasury
+- [x] Deployer wallet generated, `.env` configured for Base Sepolia
+- [x] Configurable `registrationStake` (0.001 ETH) and `bidBond` (0.0001 ETH) for testnet
+- [x] `getProtocolParams()` view — agents query fees before registering
+
 ### Frontend
 - [x] Landing page with Human / Agent mode selector
 - [x] Human flow: intent input → 3 strategy cards → approval → execution → position
@@ -63,8 +73,6 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 
 ---
 
----
-
 ## Phase 1 — Multiple Strategies + Real APR ✅ Complete
 
 - [x] 3-strategy output from single Gemini tool loop
@@ -77,42 +85,31 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 
 ---
 
-## Phase 1.5 — Agent Identity (ENS + Builder Codes)
-**Target: May 1 | ~1 day**
+## Phase 1.5 — Agent Identity (ENS + Builder Codes) ✅ Contract done, TS pending
 
 Goal: Solvers have human-readable ENS identity. Execution calldata embeds a builder code
 for immutable on-chain attribution and automatic fee routing.
 
+- [x] `contracts/src/IntentRegistry.sol` — `registerSolver` accepts `ensName` + `builderCode`
+- [x] `contracts/src/IntentRegistry.sol` — `fulfillIntent` verifies builder code, routes fee to solver
+- [x] Built-in solver hard-codes `builderCode: 0xDEAD1234`, `ensName: gemini-lp.solvers.uni-agent.eth` in deploy script
 - [ ] `SolverMeta` type — add `ensName: string` and `builderCode: string` (4-byte hex)
-- [ ] `contracts/src/IntentRegistry.sol` — `registerSolver` accepts `ensName` + `builderCode`
-- [ ] `contracts/src/IntentRegistry.sol` — execution reads last 4 calldata bytes, routes fee to matching solver
 - [ ] `lib/services/registry.ts` — emit `builderCode` in `fulfillIntent` calldata
 - [ ] `app/page.tsx` — strategy cards display `ensName` instead of raw solver address
-- [ ] Built-in solver hard-codes `builderCode: '0xDEAD1234'`, `ensName: 'gemini-lp.solvers.uni-agent.eth'`
 - [ ] `app/api/v1/solvers/register/route.ts` — accept + store `ensName` and `builderCode`
 
-Milestone: Strategy cards show `gemini-lp.solvers.uni-agent.eth`. Execution calldata includes builder code. Fee routes on-chain to solver address.
-
 ---
 
----
+## Phase 2 — Solver Registration + Bid Bond ✅ Contract done, needs deploy
 
-## Phase 2 — Solver Registration + Bid Bond (Protocol Layer)
-**Target: April 30 | ~1 day**
+Goal: Deploy IntentRegistry to Base Sepolia and wire TypeScript services to it.
 
-Goal: Solvers register on-chain with a stake. Each strategy submission requires a bid bond.
-
-- [ ] `contracts/src/IntentRegistry.sol` — full contract:
-  - `registerSolver(feeRecipient, name, endpoint)` payable — 0.05 ETH stake
-  - `submitStrategy(intentId, planJson, validUntil)` payable — 0.001 ETH bid bond
-  - `selectStrategy(intentId, strategyId)` — user picks, triggers settlement
-  - `fulfillIntent(intentId)` — releases fee to solver after tx confirmed
-  - `withdrawSolver()` — 24hr timelock
-  - events: `IntentCreated`, `StrategySubmitted`, `IntentFulfilled`, `SolverSlashed`
-- [ ] Deploy to Base Sepolia, verify on Basescan
+- [x] `contracts/src/IntentRegistry.sol` — full contract written and tested
+- [ ] **Deploy to Base Sepolia** — fund deployer `0x8bD204E42a3Ae3B62ea7Da8a9b4e607C2f3Dbb56` with ~0.005 ETH, run `forge script script/Deploy.s.sol --rpc-url $RPC_BASE_SEPOLIA --broadcast --verify`
 - [ ] `lib/services/registry.ts` — viem calls to `createIntent` and `fulfillIntent`
 - [ ] `app/api/v1/solvers/register/route.ts` — register external solver endpoint
 - [ ] Update `SolverMeta` type with `bidBondWei` + `validUntil`
+- [ ] Set `NEXT_PUBLIC_INTENT_REGISTRY_ADDRESS` in `.env` after deploy
 
 Milestone: Intent submitted via UI emits `IntentCreated` on-chain. Solver registration visible on Basescan.
 
@@ -153,10 +150,10 @@ Goal: Protocol watches the LP and surfaces rebalancing as a new intent when out 
 - [x] Position UI surfaces whether monitor status comes from a live tick or stored fallback data
 - [x] Execution status payload carries stored range metadata for downstream UI/monitor consumers
 - [x] Position card shows the target LP range from stored execution metadata
+- [x] Compare current tick to `tickLower` / `tickUpper` stored in Redis
+- [x] `app/api/v1/positions/[posId]/monitor/route.ts` — returns `{ inRange, currentTick, tickLower, tickUpper, driftPercent }`
+- [x] `app/page.tsx` — poll monitor every 60s when position active
 - [ ] `lib/services/monitor.ts` — `viem.readContract` on v4 PoolManager for current tick
-- [ ] Compare current tick to `tickLower` / `tickUpper` stored in Redis
-- [ ] `app/api/v1/positions/[posId]/monitor/route.ts` — returns `{ inRange, currentTick, tickLower, tickUpper, driftPercent }`
-- [ ] `app/page.tsx` — poll monitor every 60s when position active
 - [ ] Show position card: fees earned, current value, range status indicator
 - [ ] Out-of-range banner: "Earning 0 fees. Rebalance?" → one-click → new intent → Phase 1–3 repeats
 
@@ -175,6 +172,8 @@ Milestone: UI detects out-of-range position and offers one-click rebalance.
   - `UPSTASH_REDIS_REST_URL`
   - `UPSTASH_REDIS_REST_TOKEN`
   - `NEXT_PUBLIC_WC_PROJECT_ID`
+  - `NEXT_PUBLIC_INTENT_REGISTRY_ADDRESS`
+  - `NEXT_PUBLIC_INTENT_EXECUTOR_ADDRESS`
 - [ ] Get Base Sepolia test USDC from faucet
 - [ ] Run full flow 3× end to end (connect → intent → pick → sign → monitor → rebalance)
 - [ ] Record demo video (2–4 min):
@@ -251,14 +250,14 @@ Hardening targets for v0.1:
 
 ## Remaining For v0
 
-To make the testnet version complete, the remaining work is now mostly release polish, not core product wiring:
+Critical path to demo (in order):
+
+1. **Deploy contracts** — fund deployer, run `forge script`, get contract addresses
+2. **Wire `registry.ts`** — `createIntent` + `fulfillIntent` viem calls
+3. **Phase 3 real txs** — Permit2 → swap → addLiquidity in wallet
+4. **Deploy to Vercel** — set env vars, smoke test
+5. **Record demo video**
 
 Known limitation:
 
 - the current monitor is registry-snapshot based for v0; the full Uniswap tick-range oracle is tracked in [docs/issues/001-monitor-tick-range-oracle.md](/home/fred/Downloads/hackathons/uni-agent/docs/issues/001-monitor-tick-range-oracle.md)
-
-After that:
-
-- v1 is the Base mainnet launch of the working flow
-- v0.1 is the return-to-testnet hardening cycle
-- v2 is the mainnet redeploy after hardening

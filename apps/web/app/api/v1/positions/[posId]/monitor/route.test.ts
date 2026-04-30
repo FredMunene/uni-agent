@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildStoredMonitorFallback } from './route';
+import { buildStoredMonitorFallback, resolveCurrentTick } from './route';
 
 test('buildStoredMonitorFallback derives a range-aware snapshot from stored execution metadata', () => {
   const payload = buildStoredMonitorFallback('0xpos123', {
@@ -27,4 +27,14 @@ test('buildStoredMonitorFallback derives a range-aware snapshot from stored exec
   assert.equal(payload.snapshot.driftPercent, 10);
   assert.equal(payload.position.amount0, '5000000');
   assert.equal(payload.position.amount1, '1000000000000000');
+});
+
+test('resolveCurrentTick falls back to stored metadata when no live tick is configured', async () => {
+  const tick = await resolveCurrentTick({
+    _positionMeta: {
+      currentTick: -200,
+    },
+  });
+
+  assert.equal(tick, -200);
 });

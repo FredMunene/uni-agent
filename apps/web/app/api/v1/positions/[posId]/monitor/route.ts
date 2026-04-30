@@ -3,6 +3,7 @@ import { createPublicClient, http } from 'viem';
 import { baseSepolia } from 'viem/chains';
 import { marketPoolLabel } from '@/lib/marketPresentation';
 import { deriveMonitorSnapshot } from '@/lib/services/monitor';
+import { maybeReadCurrentUniswapV3Tick } from '@/lib/services/uniswapTick';
 import { positionRegistryAbi } from '@/lib/onchain';
 import { store } from '@/lib/store';
 
@@ -70,6 +71,12 @@ export function buildStoredMonitorFallback(posId: string, execution: ExecutionWi
   };
 }
 
+export async function resolveCurrentTick(execution: ExecutionWithMeta): Promise<number | undefined> {
+  const liveTick = await maybeReadCurrentUniswapV3Tick();
+  if (typeof liveTick === 'number') return liveTick;
+  return execution._positionMeta?.currentTick;
+}
+
 export async function GET(_req: Request, { params }: { params: Promise<{ posId: string }> }) {
   const { posId } = await params;
   const execution = await store.executions.findByPosition?.(posId) as ExecutionWithMeta | null | undefined;
@@ -82,6 +89,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ posId: 
   }
 
   try {
+    const currentTick = execution ? await resolveCurrentTick(execution) : undefined;
     const position = await client.readContract({
       address: registryAddress as `0x${string}`,
       abi: positionRegistryAbi,
@@ -95,7 +103,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ posId: 
       token0Amount: position.amount0.toString(),
       token1Amount: position.amount1.toString(),
       liquidity: position.liquidity.toString(),
-      currentTick: execution?._positionMeta?.currentTick,
+      currentTick,
       tickLower: execution?._positionMeta?.tickLower,
       tickUpper: execution?._positionMeta?.tickUpper,
     });

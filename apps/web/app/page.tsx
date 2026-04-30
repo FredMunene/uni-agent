@@ -138,6 +138,11 @@ type Execution = {
   };
 };
 
+type MonitorResponse = {
+  snapshot?: MonitorSnapshot;
+  monitorSource?: 'live_tick' | 'stored_tick' | 'stored_fallback' | 'unknown';
+};
+
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 const api = (path: string) => `/api${path}`;
@@ -468,6 +473,7 @@ export default function Page() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [execution, setExecution] = useState<Execution | null>(null);
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
+  const [monitorSource, setMonitorSource] = useState<MonitorResponse['monitorSource'] | null>(null);
   const [error, setError]         = useState('');
   const selectedPlan = planRes?.plans.find((p) => p.planId === selectedId) ?? null;
 
@@ -485,9 +491,10 @@ export default function Page() {
       try {
         const res = await fetch(api(`/v1/positions/${positionId}/monitor`));
         if (!res.ok) return;
-        const data = await res.json() as { snapshot?: MonitorSnapshot };
+        const data = await res.json() as MonitorResponse;
         if (!cancelled && data.snapshot) {
           setMonitor(data.snapshot);
+          setMonitorSource(data.monitorSource ?? 'unknown');
         }
       } catch {
         // ignore demo monitor blips
@@ -509,6 +516,7 @@ export default function Page() {
     setPlanRes(null);
     setSelectedId(null);
     setMonitor(null);
+    setMonitorSource(null);
 
     try {
       const createRes = await fetch(api('/v1/intents'), {
@@ -547,6 +555,7 @@ export default function Page() {
     setSelectedId(null);
     setExecution(null);
     setMonitor(null);
+    setMonitorSource(null);
     setIntentId('');
     setError('');
   }
@@ -568,6 +577,7 @@ export default function Page() {
     setStep('approval');
     setError('');
     setMonitor(null);
+    setMonitorSource(null);
   }
 
   async function handleAuthorizeSelectedPlan() {
@@ -579,6 +589,7 @@ export default function Page() {
     setStep('executing');
     setError('');
     setMonitor(null);
+    setMonitorSource(null);
 
     try {
       const permit2Signature = await signMessageAsync({
@@ -1016,6 +1027,7 @@ export default function Page() {
               color: 'var(--text-faint)',
             }}>
               monitor: {monitor.inRange ? 'healthy' : 'rebalance suggested'} · drift {monitor.driftPercent}%
+              {monitorSource ? ` · source ${monitorSource === 'live_tick' ? 'live tick' : monitorSource === 'stored_tick' ? 'stored tick' : monitorSource === 'stored_fallback' ? 'stored fallback' : 'unknown'}` : ''}
             </div>
           )}
           {monitor && !monitor.inRange && (

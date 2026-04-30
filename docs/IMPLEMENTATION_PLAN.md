@@ -72,7 +72,7 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 - [x] `recommendedPlanId` selected by risk preference
 - [x] Explicit v0 market target: Base `USDC/WETH 0.05%`, with market config abstraction for future pairs
 - [x] UI and status routes consume the same active market labels
-- [ ] `lib/services/apr.ts` — wire live Uniswap v3 subgraph query (currently uses static snapshot fallback)
+- [x] `lib/services/apr.ts` — wire live Uniswap v3 subgraph query when `UNISWAP_V3_BASE_SUBGRAPH_URL` or `THE_GRAPH_API_KEY` is configured
 
 ---
 

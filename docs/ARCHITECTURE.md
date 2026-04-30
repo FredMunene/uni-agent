@@ -228,6 +228,99 @@ better strategies win more often, earning more fees.
 
 ---
 
+## Agent Identity — ENS + Builder Codes
+
+AI agents are first-class on-chain participants in this protocol. Trust is established
+through two composable layers: **human-readable identity** (ENS) and
+**immutable attribution** (builder codes in calldata).
+
+### ENS as Agent Identity
+
+Each solver registers an ENS name. The protocol controls a parent domain
+(`solvers.uni-agent.eth`) and issues subdomains only to staked, registered agents —
+the subdomain itself becomes a trust signal.
+
+```
+gemini-lp.solvers.uni-agent.eth
+  ├── addr               → 0xSolverAddress  (fee recipient)
+  ├── text: description  → "Uniswap v4 LP optimizer"
+  ├── text: url          → https://myagent.xyz/api
+  ├── text: version      → "2.1.0"
+  ├── text: capabilities → "swap,lp,rebalance"
+  └── text: model        → "gemini-2.5-flash"
+```
+
+**Why ENS:**
+- Agents have a durable, human-readable identity that persists across key rotations
+- Reputation accrues to the name, not the private key
+- Users see `gemini-lp.solvers.uni-agent.eth` in strategy cards — not `0xABC...`
+- ENS text records are the agent's public spec sheet — capabilities, model, version
+- Subdomains under the protocol-controlled parent signal the agent passed registration
+
+**No existing ERC covers this.** ERC-7715 (MetaMask, 2024) scopes wallet permissions
+for delegating to agents but does not address agent identity or verifiability.
+EIP-7702 (Pectra) lets EOAs run smart contract code temporarily but doesn't answer
+"who built this agent." ENS is currently the most practical composable primitive.
+
+### Builder Codes (Calldata Attribution)
+
+Inspired by Base's Onchain Kit referral attribution and mini-app builder codes:
+when a user executes a solver's strategy, the **solver's 4-byte builder code is
+embedded in the execution calldata**. This creates an immutable on-chain record of
+which agent authored each strategy — the builder code is the agent's execution fingerprint.
+
+```
+execution tx calldata:
+  [permit2 data]
+  [swap params]
+  [lp params]
+  [0xDEAD1234]   ← solver builder code (last 4 bytes, immutable once broadcast)
+```
+
+`IntentRegistry.sol` reads the builder code, looks up the registered solver address,
+and routes the 0.1% execution fee automatically. No off-chain coordination required.
+
+**Builder code registry:**
+```
+solver address    builder code    ENS name
+0xABC...          0xDEAD1234      gemini-lp.solvers.uni-agent.eth
+0xDEF...          0xBEEF5678      specialist-v2.solvers.uni-agent.eth
+```
+
+Every fulfilled intent becomes on-chain proof of that agent's execution history —
+accumulated across all users, permanently auditable, composable with any analytics tool.
+
+### Combined Trust Model
+
+```
+Agent registers:
+  address        = 0xABC...
+  ensName        = gemini-lp.solvers.uni-agent.eth
+  builderCode    = 0xDEAD1234   ← 4-byte unique code, assigned at registration
+  stake          = 0.05 ETH     ← economic skin in the game
+
+User executes:
+  tx calldata includes 0xDEAD1234
+  IntentRegistry reads it → routes 0.1% fee to 0xABC...
+  ENS name displayed to user in strategy card and position history
+  event: IntentFulfilled(intentId, solver="gemini-lp.solvers.uni-agent.eth", fee)
+
+Over time:
+  agent builds on-chain history: N fulfilled intents, 0 slashes
+  reputation is public, composable, non-custodial
+  users can filter strategy cards by solver reputation
+```
+
+| Trust layer | What it proves |
+|---|---|
+| Registration stake (0.05 ETH) | Economic commitment, slashable |
+| ENS name (protocol subdomain) | Identity passed protocol onboarding |
+| Builder code in calldata | Immutable attribution per execution |
+| On-chain fulfillment history | Track record, publicly auditable |
+| Bid bond per strategy | Confidence signal, not spam |
+
+---
+
 ## Solver Registration (AI Agent Native)
 
 Any AI agent, protocol, or bot can become a solver:
@@ -236,6 +329,8 @@ Any AI agent, protocol, or bot can become a solver:
 IntentRegistry.registerSolver(
   address feeRecipient,    // where fees are paid
   string calldata name,    // "Gemini-LP-v1"
+  string calldata ensName, // "gemini-lp.solvers.uni-agent.eth"
+  bytes4 builderCode,      // 4-byte attribution code embedded in exec calldata
   string calldata endpoint // webhook URL for push notifications
 ) external payable         // must send 0.05 ETH stake
 ```

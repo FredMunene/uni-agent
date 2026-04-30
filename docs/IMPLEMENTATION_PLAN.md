@@ -1,59 +1,93 @@
 # Implementation Plan
 
-Hackathon ends: May 6, 2026. Today: April 28.
-**8 days remaining.**
+Hackathon ends: May 6, 2026. Today: April 30.
+**6 days remaining.**
 
 ---
 
-## Current Status (Done)
+## Progress Overview
 
-- [x] Intent REST API (Next.js route handlers)
-- [x] Gemini 2.0 Flash agent — single-strategy tool loop
+```
+Protocol layer     ████████████░░░░  75%   API, types, plan hash, execution auth
+Solver layer       ████████░░░░░░░░  50%   Gemini 3-strategy loop, APR, bid meta
+Agent identity     ████░░░░░░░░░░░░  25%   Designed, docs updated, not yet wired
+Smart contract     ░░░░░░░░░░░░░░░░   0%   IntentRegistry.sol not yet written
+On-chain exec      ████░░░░░░░░░░░░  25%   Calldata builders exist, txs not live
+Frontend           ████████████░░░░  75%   Landing, human/agent modes, strategy cards
+Demo readiness     ████████░░░░░░░░  50%   Flow works, needs real txs + video
+```
+
+---
+
+## Done
+
+### Protocol / API
+- [x] Intent REST API (POST, GET, status lifecycle)
+- [x] Upstash Redis persistence for intents, plans, executions
+- [x] Plan hash stamped server-side (`keccak256` of strategy fingerprint)
+- [x] Execution route: owner binding, lifecycle checks, duplicate rejection, integrity check
+- [x] Execution requests signed in-wallet, verified server-side
+- [x] Execution state transitions fail-safe on persistence errors
+- [x] `maxDuration = 60` on plan route for Gemini latency
+
+### Solver / AI
+- [x] Gemini 2.5 Flash agent with tool-calling loop (`get_swap_quote`, `get_lp_params`, `simulate_bundle`)
 - [x] Uniswap Trading API quote integration
+- [x] 3-strategy output: Conservative / Balanced / Aggressive from one Gemini loop
+- [x] Live APR snapshots per strategy (stable / balanced / aggressive pools)
+- [x] `SolverMeta` type: `solverAddress`, `solverName`, `bidBondWei`, `validUntil`
+- [x] `StrategyLabel`, `SolverStatus` types in shared package
+- [x] Retry logic for transient Gemini 503 / 429 errors
+- [x] Risk-preferred strategy recommendation (`recommendedPlanId`)
+
+### Frontend
+- [x] Landing page with Human / Agent mode selector
+- [x] Human flow: intent input → 3 strategy cards → approval → execution → position
+- [x] Agent flow: solver API docs with code snippets + economics table (copy buttons)
 - [x] RainbowKit v2 wallet connect (MetaMask + Coinbase)
-- [x] Upstash Redis persistence
-- [x] Time-based execution simulation
-- [x] Human-readable USDC amount input
-- [x] Monorepo merged into single Next.js app (Vercel-ready)
-- [x] Shared types: `SolverMeta`, `StrategyLabel`, `SolverStatus` added
-- [x] Plan hashes stamped server-side and shown in the UI
-- [x] Execution route binds owner, lifecycle, duplicate, and integrity checks
-- [x] Execution state transitions fail safe on persistence errors
-- [x] Execution payloads require a valid plan hash format
-- [x] Execution requests are signed in-wallet and verified server-side
-- [x] Execution broadcasts an onchain transaction from the UI
-- [x] Position monitor polls the onchain registry snapshot
-- [x] Strategy cards use live APR snapshots for planning
-- [x] Rebalance button drafts a new intent from the active position
-- [x] Intent planning and execution helpers have tests
+- [x] ENS + Basename resolution displayed in wallet button
+- [x] Strategy cards: APR, gas, max loss, risk badge, plan hash, recommended badge
+- [x] Position monitor card with rebalance trigger
+- [x] Light theme (orange / white / grey), mobile-responsive
+
+### Infrastructure
+- [x] Monorepo (Turborepo), single Next.js app, Vercel-ready
+- [x] Shared Zod schemas + TypeScript types (`packages/shared`)
 - [x] Plan integrity validation rejects tampered execution payloads
-- [x] Execution duplicate submissions are rejected in the live store
-- [x] Vault refunds are restricted to the depositor only
-- [x] Foundry test suite passes for vault and executor hardening
-- [x] Reproducible CLI demo script captures intent -> plan -> execute -> monitor -> rebalance
+- [x] CLI demo script: intent → plan → execute → monitor → rebalance
+- [x] Foundry test suite for vault and executor hardening
 
 ---
 
-## Phase 1 — Multiple Strategies + Real APR
-**Target: April 29 | ~1 day**
+---
 
-Goal: Gemini generates 3 competing strategies with real yield data. User picks one.
+## Phase 1 — Multiple Strategies + Real APR ✅ Complete
 
-- [ ] `lib/services/apr.ts` — query Uniswap v3 subgraph (The Graph) for 7-day fee APR
-- [ ] `lib/agent/tools.ts` — add `get_pool_apr` tool definition
-- [ ] `lib/agent/index.ts` — update system prompt to output 3 strategies (conservative / balanced / aggressive)
-- [ ] `packages/shared/src/types.ts` — `strategy` field already added to `Plan`
-- [ ] `app/api/v1/intents/[id]/plan/route.ts` — return array of 3 plans
-- [ ] `app/page.tsx` — strategy picker cards showing: APR, IL risk, gas, solver name, recommended badge
+- [x] 3-strategy output from single Gemini tool loop
+- [x] Live APR snapshots (stable / balanced / aggressive)
+- [x] Strategy picker cards with APR, gas, max loss, risk badge
+- [x] `recommendedPlanId` selected by risk preference
+- [ ] `lib/services/apr.ts` — wire live Uniswap v3 subgraph query (currently uses static snapshot fallback)
 
-Strategies:
-| Label | Pool | APR | IL Risk | Tick Range |
-|---|---|---|---|---|
-| Conservative | USDC/USDT 0.01% | ~4% | None | Full |
-| Balanced | USDC/WETH 0.05% | ~12% | Low | Full |
-| Aggressive | USDC/WETH 0.05% | ~40% | High | ±5% around current price |
+---
 
-Milestone: UI shows 3 plan cards with real APR from subgraph. User selects before executing.
+## Phase 1.5 — Agent Identity (ENS + Builder Codes)
+**Target: May 1 | ~1 day**
+
+Goal: Solvers have human-readable ENS identity. Execution calldata embeds a builder code
+for immutable on-chain attribution and automatic fee routing.
+
+- [ ] `SolverMeta` type — add `ensName: string` and `builderCode: string` (4-byte hex)
+- [ ] `contracts/src/IntentRegistry.sol` — `registerSolver` accepts `ensName` + `builderCode`
+- [ ] `contracts/src/IntentRegistry.sol` — execution reads last 4 calldata bytes, routes fee to matching solver
+- [ ] `lib/services/registry.ts` — emit `builderCode` in `fulfillIntent` calldata
+- [ ] `app/page.tsx` — strategy cards display `ensName` instead of raw solver address
+- [ ] Built-in solver hard-codes `builderCode: '0xDEAD1234'`, `ensName: 'gemini-lp.solvers.uni-agent.eth'`
+- [ ] `app/api/v1/solvers/register/route.ts` — accept + store `ensName` and `builderCode`
+
+Milestone: Strategy cards show `gemini-lp.solvers.uni-agent.eth`. Execution calldata includes builder code. Fee routes on-chain to solver address.
+
+---
 
 ---
 

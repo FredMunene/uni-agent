@@ -50,6 +50,18 @@ function makeStoredPlan(intentId: string, amountIn = '1') {
         estimatedAmountOut: '2',
         slippageBps: 50,
       },
+      {
+        stepId: 'step_002',
+        type: 'add_liquidity',
+        provider: 'uniswap-v4',
+        chainId: 84532,
+        fromToken: 'USDC',
+        toToken: 'WETH',
+        token0AmountIn: amountIn,
+        token1AmountIn: '2',
+        tickLower: -1200,
+        tickUpper: 800,
+      },
     ],
     risk: { maxLossUsd: '2.50', notes: 'stable' },
     createdAt: '2026-04-28T00:00:00.000Z',
@@ -140,10 +152,24 @@ test('startExecution marks the intent as executing and stores one execution reco
   assert.equal(updatedIntents.at(-1)?.status, 'executing');
   assert.equal(Object.keys(executions).length, 1);
 
-  const execution = Object.values(executions)[0] as { intentId?: string; planId?: string; status?: string };
+  const execution = Object.values(executions)[0] as {
+    intentId?: string;
+    planId?: string;
+    status?: string;
+    _positionMeta?: {
+      positionId?: string;
+      tickLower?: number;
+      tickUpper?: number;
+      currentTick?: number;
+    };
+  };
   assert.equal(execution.intentId, intent.intentId);
   assert.equal(execution.planId, 'plan_123');
   assert.equal(execution.status, 'submitted');
+  assert.ok(execution._positionMeta?.positionId?.startsWith('0x'));
+  assert.equal(execution._positionMeta?.tickLower, -1200);
+  assert.equal(execution._positionMeta?.tickUpper, 800);
+  assert.equal(execution._positionMeta?.currentTick, -200);
 });
 
 test('startExecution rejects a plan whose contents do not match its hash', async () => {

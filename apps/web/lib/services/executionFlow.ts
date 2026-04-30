@@ -1,4 +1,5 @@
 import { nanoid } from 'nanoid';
+import { encodeAbiParameters, keccak256, stringToHex } from 'viem';
 import { verifyMessage } from 'viem';
 import type { Intent } from '@uni-agent/shared';
 
@@ -26,6 +27,42 @@ type StoreLike = {
 };
 
 const PLAN_HASH_PATTERN = /^0x[a-fA-F0-9]{64}$/;
+
+function buildPlanIntentBytes32(intentId: string): `0x${string}` {
+  return keccak256(stringToHex(intentId));
+}
+
+function buildPredictedPositionId(intentId: string, planId: string, userAddress: string): `0x${string}` {
+  return keccak256(
+    encodeAbiParameters(
+      [
+        { type: 'bytes32' },
+        { type: 'bytes32' },
+        { type: 'address' },
+      ],
+      [
+        buildPlanIntentBytes32(intentId),
+        keccak256(stringToHex(planId)),
+        userAddress as `0x${string}`,
+      ],
+    ),
+  );
+}
+
+function buildPositionMeta(intentId: string, plan: PlanLike, userAddress: string) {
+  const addLiquidityStep = plan.steps.find(
+    (step): step is typeof step & { tickLower?: number; tickUpper?: number } => step.type === 'add_liquidity',
+  );
+  const tickLower = addLiquidityStep?.tickLower ?? -1000;
+  const tickUpper = addLiquidityStep?.tickUpper ?? 1000;
+
+  return {
+    positionId: buildPredictedPositionId(intentId, plan.planId, userAddress),
+    tickLower,
+    tickUpper,
+    currentTick: Math.round((tickLower + tickUpper) / 2),
+  };
+}
 
 export async function startExecution(
   storeApi: StoreLike,
@@ -94,6 +131,7 @@ export async function startExecution(
   }
 
   const executionId = `exec_${nanoid(8)}`;
+  const positionMeta = buildPositionMeta(intentId, plan, userAddress);
   const executionRecord = {
     executionId,
     planId,
@@ -103,6 +141,7 @@ export async function startExecution(
     steps: plan.steps.map((s: any) => ({ type: s.type, status: 'pending' as const })),
     createdAt: new Date().toISOString(),
     _plan: plan,
+    _positionMeta: positionMeta,
   };
 
   await storeApi.executions.set(executionId, executionRecord);

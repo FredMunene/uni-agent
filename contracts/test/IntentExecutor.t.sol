@@ -43,7 +43,9 @@ contract IntentExecutorTest is Test {
             deadline: deadline,
             planHash: planHash,
             signature: signature,
-            steps: steps
+            steps: steps,
+            registryAddress: address(0),
+            builderCode: bytes4(0)
         });
 
         vm.prank(user);
@@ -63,7 +65,9 @@ contract IntentExecutorTest is Test {
             deadline: deadline,
             planHash: planHash,
             signature: signature,
-            steps: steps
+            steps: steps,
+            registryAddress: address(0),
+            builderCode: bytes4(0)
         });
 
         vm.expectRevert(IntentExecutor.InvalidSignature.selector);
@@ -81,7 +85,9 @@ contract IntentExecutorTest is Test {
             deadline: deadline,
             planHash: planHash,
             signature: signature,
-            steps: steps
+            steps: steps,
+            registryAddress: address(0),
+            builderCode: bytes4(0)
         });
 
         vm.prank(attacker);

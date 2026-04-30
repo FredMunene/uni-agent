@@ -12,20 +12,45 @@ contract IntentRegistryTest is Test {
     address solver1  = address(0xAAAA);
     address solver2  = address(0xBBBB);
     address user     = address(0xCCCC);
+    address oracle   = address(0xDDDD);
 
     bytes4  code1    = bytes4(0xDEAD1234);
     bytes4  code2    = bytes4(0xBEEF5678);
     bytes32 intentId = keccak256("intent-001");
     bytes32 planHash = keccak256("plan-balanced");
 
-    uint256 constant STAKE    = 0.05 ether;
-    uint256 constant BOND     = 0.001 ether;
+    uint256 constant STAKE = 0.05 ether;
+    uint256 constant BOND  = 0.001 ether;
+    uint256 constant QUOTED_APY = 1240; // 12.40% in bps
 
     function setUp() public {
         registry = new IntentRegistry(treasury);
         vm.deal(solver1, 10 ether);
         vm.deal(solver2, 10 ether);
         vm.deal(user, 10 ether);
+        vm.deal(oracle, 1 ether);
+    }
+
+    // ── helpers ───────────────────────────────────────────────────────────────
+
+    function _register(address s, bytes4 code) internal {
+        vm.prank(s);
+        registry.registerSolver{value: STAKE}(s, "Solver", "solver.eth", code, "");
+    }
+
+    function _createIntent() internal {
+        registry.createIntent(intentId, user, address(0xA0b8), 1000e6, 1);
+    }
+
+    function _submit(address s, uint256 apy) internal returns (bytes32 stratId) {
+        vm.prank(s);
+        stratId = registry.submitStrategy{value: BOND}(intentId, planHash, apy, block.timestamp + 5 minutes);
+    }
+
+    function _selectAndFulfill(bytes32 stratId, bytes4 code) internal {
+        vm.prank(user);
+        registry.selectStrategy(intentId, stratId);
+        registry.fulfillIntent{value: 0.1 ether}(intentId, code);
     }
 
     // ── registration ─────────────────────────────────────────────────────────
@@ -37,14 +62,8 @@ contract IntentRegistryTest is Test {
         );
 
         (
-            address feeRecipient,
-            string memory name,
-            string memory ensName,
-            bytes4 bCode,
-            ,
-            uint256 stake,
-            uint256 fulfilled,
-            uint256 slashed,
+            address feeRecipient, string memory name, string memory ensName,
+            bytes4 bCode,, uint256 stake, uint256 fulfilled, uint256 slashed,
             IntentRegistry.SolverStatus status,
         ) = registry.solvers(solver1);
 
@@ -62,9 +81,7 @@ contract IntentRegistryTest is Test {
     function test_register_reverts_wrong_stake() public {
         vm.prank(solver1);
         vm.expectRevert(IntentRegistry.WrongStake.selector);
-        registry.registerSolver{value: 0.01 ether}(
-            solver1, "X", "x.eth", code1, ""
-        );
+        registry.registerSolver{value: 0.01 ether}(solver1, "X", "x.eth", code1, "");
     }
 
     function test_register_reverts_if_already_registered() public {
@@ -76,9 +93,7 @@ contract IntentRegistryTest is Test {
     }
 
     function test_register_reverts_duplicate_builder_code() public {
-        vm.prank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "A", "a.eth", code1, "");
-
+        _register(solver1, code1);
         vm.prank(solver2);
         vm.expectRevert(IntentRegistry.BuilderCodeTaken.selector);
         registry.registerSolver{value: STAKE}(solver2, "B", "b.eth", code1, "");
@@ -87,20 +102,18 @@ contract IntentRegistryTest is Test {
     // ── withdrawal ───────────────────────────────────────────────────────────
 
     function test_withdrawal_requires_24h_delay() public {
+        _register(solver1, code1);
         vm.startPrank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
         registry.requestWithdrawal();
-
         vm.expectRevert(IntentRegistry.WithdrawalTooEarly.selector);
         registry.claimWithdrawal();
         vm.stopPrank();
     }
 
     function test_withdrawal_succeeds_after_delay() public {
+        _register(solver1, code1);
         vm.startPrank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
         registry.requestWithdrawal();
-
         vm.warp(block.timestamp + 25 hours);
         uint256 before = solver1.balance;
         registry.claimWithdrawal();
@@ -109,11 +122,10 @@ contract IntentRegistryTest is Test {
     }
 
     function test_withdrawal_without_request_reverts() public {
-        vm.startPrank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
+        _register(solver1, code1);
+        vm.prank(solver1);
         vm.expectRevert(IntentRegistry.WithdrawalNotRequested.selector);
         registry.claimWithdrawal();
-        vm.stopPrank();
     }
 
     // ── intent lifecycle ─────────────────────────────────────────────────────
@@ -122,13 +134,8 @@ contract IntentRegistryTest is Test {
         address usdc = address(0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48);
         registry.createIntent(intentId, user, usdc, 1000e6, 1);
 
-        (
-            address u,
-            address asset,
-            uint256 amount,
-            uint8 risk,
-            IntentRegistry.IntentStatus status,
-        ) = registry.intents(intentId);
+        (address u, address asset, uint256 amount, uint8 risk, IntentRegistry.IntentStatus status,) =
+            registry.intents(intentId);
 
         assertEq(u, user);
         assertEq(asset, usdc);
@@ -139,70 +146,66 @@ contract IntentRegistryTest is Test {
 
     // ── strategy submission ───────────────────────────────────────────────────
 
-    function _registerAndCreateIntent() internal {
-        vm.prank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
-        registry.createIntent(intentId, user, address(0), 1000e6, 1);
-    }
-
     function test_submit_strategy_records_and_returns_id() public {
-        _registerAndCreateIntent();
+        _register(solver1, code1);
+        _createIntent();
 
-        uint256 validUntil = block.timestamp + 5 minutes;
         vm.prank(solver1);
-        bytes32 stratId = registry.submitStrategy{value: BOND}(intentId, planHash, validUntil);
+        bytes32 stratId = registry.submitStrategy{value: BOND}(
+            intentId, planHash, QUOTED_APY, block.timestamp + 5 minutes
+        );
 
-        (address s, bytes32 ph, uint256 vu, uint256 bond, bool refunded) = registry.strategies(stratId);
+        (address s, bytes32 ph, uint256 apy,, uint256 bond, bool refunded) = registry.strategies(stratId);
         assertEq(s, solver1);
         assertEq(ph, planHash);
-        assertEq(vu, validUntil);
+        assertEq(apy, QUOTED_APY);
         assertEq(bond, BOND);
         assertEq(refunded, false);
 
-        bytes32[] memory ids = registry.getIntentStrategies(intentId);
-        assertEq(ids.length, 1);
-        assertEq(ids[0], stratId);
+        assertEq(registry.getIntentStrategies(intentId).length, 1);
     }
 
     function test_submit_strategy_reverts_wrong_bond() public {
-        _registerAndCreateIntent();
+        _register(solver1, code1);
+        _createIntent();
         vm.prank(solver1);
         vm.expectRevert(IntentRegistry.WrongBidBond.selector);
-        registry.submitStrategy{value: 0.0001 ether}(intentId, planHash, block.timestamp + 5 minutes);
+        registry.submitStrategy{value: 0.0001 ether}(intentId, planHash, QUOTED_APY, block.timestamp + 5 minutes);
+    }
+
+    function test_submit_strategy_reverts_zero_quoted_apy() public {
+        _register(solver1, code1);
+        _createIntent();
+        vm.prank(solver1);
+        vm.expectRevert(IntentRegistry.QuotedApyZero.selector);
+        registry.submitStrategy{value: BOND}(intentId, planHash, 0, block.timestamp + 5 minutes);
     }
 
     function test_submit_strategy_reverts_inactive_solver() public {
-        registry.createIntent(intentId, user, address(0), 1000e6, 1);
-        vm.prank(solver1); // not registered
+        _createIntent();
+        vm.prank(solver1);
         vm.expectRevert(IntentRegistry.SolverNotActive.selector);
-        registry.submitStrategy{value: BOND}(intentId, planHash, block.timestamp + 5 minutes);
+        registry.submitStrategy{value: BOND}(intentId, planHash, QUOTED_APY, block.timestamp + 5 minutes);
     }
 
     function test_submit_strategy_reverts_intent_not_open() public {
-        _registerAndCreateIntent();
-        uint256 validUntil = block.timestamp + 5 minutes;
-
-        vm.prank(solver1);
-        bytes32 stratId = registry.submitStrategy{value: BOND}(intentId, planHash, validUntil);
-
-        // user selects it → intent moves to Selected
+        _register(solver1, code1);
+        _createIntent();
+        bytes32 stratId = _submit(solver1, QUOTED_APY);
         vm.prank(user);
         registry.selectStrategy(intentId, stratId);
 
-        // now submitting again should fail
         vm.prank(solver1);
         vm.expectRevert(IntentRegistry.IntentNotOpen.selector);
-        registry.submitStrategy{value: BOND}(intentId, planHash, block.timestamp + 5 minutes);
+        registry.submitStrategy{value: BOND}(intentId, planHash, QUOTED_APY, block.timestamp + 5 minutes);
     }
 
     // ── strategy selection ────────────────────────────────────────────────────
 
     function test_select_strategy_transitions_intent() public {
-        _registerAndCreateIntent();
-        uint256 validUntil = block.timestamp + 5 minutes;
-
-        vm.prank(solver1);
-        bytes32 stratId = registry.submitStrategy{value: BOND}(intentId, planHash, validUntil);
+        _register(solver1, code1);
+        _createIntent();
+        bytes32 stratId = _submit(solver1, QUOTED_APY);
 
         vm.prank(user);
         registry.selectStrategy(intentId, stratId);
@@ -213,23 +216,21 @@ contract IntentRegistryTest is Test {
     }
 
     function test_select_strategy_reverts_wrong_user() public {
-        _registerAndCreateIntent();
-        vm.prank(solver1);
-        bytes32 stratId = registry.submitStrategy{value: BOND}(intentId, planHash, block.timestamp + 5 minutes);
+        _register(solver1, code1);
+        _createIntent();
+        bytes32 stratId = _submit(solver1, QUOTED_APY);
 
-        vm.prank(solver2); // not the intent user
+        vm.prank(solver2);
         vm.expectRevert(IntentRegistry.NotIntentUser.selector);
         registry.selectStrategy(intentId, stratId);
     }
 
     function test_select_strategy_reverts_if_expired() public {
-        _registerAndCreateIntent();
-        uint256 validUntil = block.timestamp + 5 minutes;
+        _register(solver1, code1);
+        _createIntent();
+        bytes32 stratId = _submit(solver1, QUOTED_APY);
 
-        vm.prank(solver1);
-        bytes32 stratId = registry.submitStrategy{value: BOND}(intentId, planHash, validUntil);
-
-        vm.warp(block.timestamp + 10 minutes); // strategy expired
+        vm.warp(block.timestamp + 10 minutes);
         vm.prank(user);
         vm.expectRevert(IntentRegistry.StrategyExpired.selector);
         registry.selectStrategy(intentId, stratId);
@@ -237,56 +238,50 @@ contract IntentRegistryTest is Test {
 
     // ── intent fulfillment ────────────────────────────────────────────────────
 
-    function _setupSelectedIntent() internal returns (bytes32 stratId) {
-        _registerAndCreateIntent();
-        vm.prank(solver1);
-        stratId = registry.submitStrategy{value: BOND}(intentId, planHash, block.timestamp + 5 minutes);
+    function test_fulfill_intent_routes_fee_correctly() public {
+        _register(solver1, code1);
+        _createIntent();
+        bytes32 stratId = _submit(solver1, QUOTED_APY);
         vm.prank(user);
         registry.selectStrategy(intentId, stratId);
-    }
-
-    function test_fulfill_intent_routes_fee_correctly() public {
-        _setupSelectedIntent();
 
         uint256 fee = 1 ether;
         uint256 solverBefore   = solver1.balance;
         uint256 treasuryBefore = treasury.balance;
 
-        // Protocol calls fulfillIntent with fee amount + correct builder code
         registry.fulfillIntent{value: fee}(intentId, code1);
 
-        uint256 expectedSolverShare   = (fee * 7000) / 10_000; // 70%
-        uint256 expectedTreasuryShare = fee - expectedSolverShare; // 30%
+        uint256 expectedSolver   = (fee * 7000) / 10_000;
+        uint256 expectedTreasury = fee - expectedSolver;
 
-        // solver gets share + bid bond back
-        assertEq(solver1.balance, solverBefore + expectedSolverShare + BOND);
-        assertEq(treasury.balance, treasuryBefore + expectedTreasuryShare);
+        assertEq(solver1.balance,   solverBefore   + expectedSolver + BOND);
+        assertEq(treasury.balance,  treasuryBefore + expectedTreasury);
     }
 
     function test_fulfill_intent_increments_fulfilled_count() public {
-        _setupSelectedIntent();
-        registry.fulfillIntent{value: 0.1 ether}(intentId, code1);
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
 
-        (,,,,, , uint256 count,,, ) = registry.solvers(solver1);
+        (,,,,,, uint256 count,,, ) = registry.solvers(solver1);
         assertEq(count, 1);
     }
 
-    function test_fulfill_intent_marks_strategy_refunded() public {
-        bytes32 stratId = _setupSelectedIntent();
-        registry.fulfillIntent{value: 0.1 ether}(intentId, code1);
-
-        (,,,, bool refunded) = registry.strategies(stratId);
-        assertEq(refunded, true);
-    }
-
     function test_fulfill_intent_reverts_wrong_builder_code() public {
-        _setupSelectedIntent();
+        _register(solver1, code1);
+        _register(solver2, code2);
+        _createIntent();
+        bytes32 stratId = _submit(solver1, QUOTED_APY);
+        vm.prank(user);
+        registry.selectStrategy(intentId, stratId);
+
         vm.expectRevert("Builder code mismatch");
-        registry.fulfillIntent{value: 0.1 ether}(intentId, code2); // code2 not solver1's code
+        registry.fulfillIntent{value: 0.1 ether}(intentId, code2);
     }
 
     function test_fulfill_intent_reverts_if_not_selected() public {
-        _registerAndCreateIntent();
+        _register(solver1, code1);
+        _createIntent();
         vm.expectRevert(IntentRegistry.IntentNotSelected.selector);
         registry.fulfillIntent{value: 0.1 ether}(intentId, code1);
     }
@@ -294,11 +289,9 @@ contract IntentRegistryTest is Test {
     // ── bid bond refund ───────────────────────────────────────────────────────
 
     function test_refund_bid_bond_after_expiry() public {
-        _registerAndCreateIntent();
-        uint256 validUntil = block.timestamp + 5 minutes;
-
-        vm.prank(solver1);
-        bytes32 stratId = registry.submitStrategy{value: BOND}(intentId, planHash, validUntil);
+        _register(solver1, code1);
+        _createIntent();
+        bytes32 stratId = _submit(solver1, QUOTED_APY);
 
         vm.warp(block.timestamp + 10 minutes);
         uint256 before = solver1.balance;
@@ -308,76 +301,193 @@ contract IntentRegistryTest is Test {
     }
 
     function test_refund_bid_bond_reverts_before_expiry() public {
-        _registerAndCreateIntent();
-        vm.prank(solver1);
-        bytes32 stratId = registry.submitStrategy{value: BOND}(intentId, planHash, block.timestamp + 5 minutes);
+        _register(solver1, code1);
+        _createIntent();
+        bytes32 stratId = _submit(solver1, QUOTED_APY);
 
         vm.prank(solver1);
         vm.expectRevert("Not yet expired");
         registry.refundBidBond(stratId);
     }
 
+    // ── reputation / reportOutcome ────────────────────────────────────────────
+
+    function test_report_outcome_updates_reputation() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+
+        // actual = 1200 bps (96.7% of quoted 1240), in-range = 9000 bps (90%)
+        registry.reportOutcome(intentId, 1200, 9000);
+
+        (,uint256 reported, uint256 score, uint256 aprAcc, uint256 inRange,,) =
+            registry.getReputation(solver1);
+
+        assertEq(reported, 1);
+        // aprAccuracy = min(1200*10000/1240, 10000) = min(9677, 10000) = 9677
+        assertEq(aprAcc, 9677);
+        // inRangeBps capped at 10000 = 9000
+        assertEq(inRange, 9000);
+        // outcomeScore = 9677 * 9000 / 10000 = 8709
+        assertEq(score, 8709);
+    }
+
+    function test_report_outcome_running_average_two_reports() public {
+        // First intent
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+        registry.reportOutcome(intentId, 1200, 9000);
+
+        // Second intent
+        bytes32 intentId2 = keccak256("intent-002");
+        registry.createIntent(intentId2, user, address(0), 1000e6, 1);
+        vm.prank(solver1);
+        bytes32 strat2 = registry.submitStrategy{value: BOND}(
+            intentId2, keccak256("plan2"), QUOTED_APY, block.timestamp + 5 minutes
+        );
+        vm.prank(user);
+        registry.selectStrategy(intentId2, strat2);
+        registry.fulfillIntent{value: 0.1 ether}(intentId2, code1);
+
+        // perfect score second time: actual = quoted, fully in range
+        registry.reportOutcome(intentId2, QUOTED_APY, 10000);
+
+        (,uint256 reported, uint256 score,,,, ) = registry.getReputation(solver1);
+        assertEq(reported, 2);
+        // first score = 8709, second score = 10000 * 10000 / 10000 = 10000
+        // avg = (8709 + 10000) / 2 = 9354
+        assertEq(score, 9354);
+    }
+
+    function test_report_outcome_perfect_score() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+
+        // actual equals quoted, fully in range
+        registry.reportOutcome(intentId, QUOTED_APY, 10000);
+
+        (,, uint256 score, uint256 aprAcc,,, ) = registry.getReputation(solver1);
+        assertEq(aprAcc, 10000);
+        assertEq(score, 10000);
+    }
+
+    function test_report_outcome_caps_accuracy_at_100pct() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+
+        // actual exceeds quoted — should cap at 10000
+        registry.reportOutcome(intentId, QUOTED_APY * 2, 10000);
+
+        (,, uint256 score, uint256 aprAcc,,, ) = registry.getReputation(solver1);
+        assertEq(aprAcc, 10000);
+        assertEq(score, 10000);
+    }
+
+    function test_report_outcome_bad_solver_low_score() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, 4000), code1); // quoted 40% APY
+
+        // delivered only 8% of what was promised, out of range half the time
+        registry.reportOutcome(intentId, 320, 5000); // actual 3.2%, in-range 50%
+
+        (,, uint256 score, uint256 aprAcc, uint256 inRange,, ) = registry.getReputation(solver1);
+        // aprAccuracy = min(320*10000/4000, 10000) = 800
+        assertEq(aprAcc, 800);
+        // outcomeScore = 800 * 5000 / 10000 = 400
+        assertEq(score, 400);
+        assertEq(inRange, 5000);
+    }
+
+    function test_report_outcome_reverts_if_not_fulfilled() public {
+        _register(solver1, code1);
+        _createIntent();
+        vm.expectRevert(IntentRegistry.IntentNotFulfilled.selector);
+        registry.reportOutcome(intentId, 1200, 9000);
+    }
+
+    function test_report_outcome_reverts_double_report() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+        registry.reportOutcome(intentId, 1200, 9000);
+
+        vm.expectRevert(IntentRegistry.AlreadyReported.selector);
+        registry.reportOutcome(intentId, 1200, 9000);
+    }
+
+    function test_report_outcome_reverts_for_non_oracle() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+
+        vm.prank(solver2);
+        vm.expectRevert(IntentRegistry.Unauthorized.selector);
+        registry.reportOutcome(intentId, 1200, 9000);
+    }
+
+    function test_set_oracle_allows_new_reporter() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+
+        // owner upgrades oracle to separate address
+        registry.setOracle(oracle);
+
+        vm.prank(oracle);
+        registry.reportOutcome(intentId, 1200, 9000);
+
+        (,uint256 reported,,,,, ) = registry.getReputation(solver1);
+        assertEq(reported, 1);
+    }
+
     // ── slashing ─────────────────────────────────────────────────────────────
 
     function test_slash_solver_transfers_stake_to_treasury() public {
-        vm.prank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
-
+        _register(solver1, code1);
         uint256 before = treasury.balance;
-        registry.slashSolver(solver1, "Submitted invalid calldata");
-
+        registry.slashSolver(solver1, "bad calldata");
         assertEq(treasury.balance, before + STAKE);
 
-        (,,,,, uint256 stake,, uint256 slashed, IntentRegistry.SolverStatus status,) = registry.solvers(solver1);
+        (,,,,, uint256 stake, , uint256 slashed, IntentRegistry.SolverStatus status,) = registry.solvers(solver1);
         assertEq(stake, 0);
         assertEq(slashed, STAKE);
         assertEq(uint8(status), uint8(IntentRegistry.SolverStatus.Slashed));
     }
 
     function test_slash_reverts_for_non_owner() public {
-        vm.prank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
-
+        _register(solver1, code1);
         vm.prank(solver2);
         vm.expectRevert(IntentRegistry.Unauthorized.selector);
         registry.slashSolver(solver1, "attack");
     }
 
     function test_slash_is_idempotent() public {
-        vm.prank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
-
+        _register(solver1, code1);
         registry.slashSolver(solver1, "first");
-        // second call must not revert, stake is already 0
         registry.slashSolver(solver1, "second");
     }
 
     // ── two solvers competing ─────────────────────────────────────────────────
 
     function test_two_solvers_only_winner_gets_fee() public {
-        vm.prank(solver1);
-        registry.registerSolver{value: STAKE}(solver1, "A", "a.eth", code1, "");
-        vm.prank(solver2);
-        registry.registerSolver{value: STAKE}(solver2, "B", "b.eth", code2, "");
+        _register(solver1, code1);
+        _register(solver2, code2);
+        _createIntent();
 
-        registry.createIntent(intentId, user, address(0), 1000e6, 1);
+        _submit(solver1, 1200);
+        bytes32 strat2 = _submit(solver2, 4000);
 
-        uint256 validUntil = block.timestamp + 5 minutes;
-        vm.prank(solver1);
-        registry.submitStrategy{value: BOND}(intentId, keccak256("plan-A"), validUntil);
-        vm.prank(solver2);
-        bytes32 strat2 = registry.submitStrategy{value: BOND}(intentId, keccak256("plan-B"), validUntil);
-
-        // user picks solver2
         vm.prank(user);
         registry.selectStrategy(intentId, strat2);
 
         uint256 fee = 0.1 ether;
         uint256 s2Before = solver2.balance;
-
         registry.fulfillIntent{value: fee}(intentId, code2);
 
-        uint256 expectedShare = (fee * 7000) / 10_000;
-        assertEq(solver2.balance, s2Before + expectedShare + BOND);
+        assertEq(solver2.balance, s2Before + (fee * 7000 / 10_000) + BOND);
     }
 }

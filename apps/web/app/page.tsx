@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react';
 import { useAccount, useEnsName, useEnsAvatar, usePublicClient, useSignMessage, useWriteContract } from 'wagmi';
 import { mainnet, base } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { ACTIVE_MARKET } from '@/lib/markets';
+import { buildDefaultGoal, marketAmountLabel, marketIntentPlaceholder, marketPoolLabel } from '@/lib/marketPresentation';
 import { buildExecutionDigest, buildExecutorExecution } from '@/lib/onchain';
 import type { MonitorSnapshot } from '@/lib/services/monitor';
 import { deriveRebalanceIntentDraft } from '@/lib/services/rebalance';
@@ -516,7 +518,7 @@ export default function Page() {
           userAddress: address,
           inputToken: 'USDC',
           inputAmount: String(Math.floor(Number(nextAmount) * 1_000_000)),
-          goal: nextGoal || `Earn yield on ${nextAmount} USDC with ${risk} risk`,
+          goal: nextGoal || buildDefaultGoal(nextAmount, risk),
           risk,
           constraints: { maxSlippageBps: 50, deadlineSeconds: 900 },
         }),
@@ -641,7 +643,7 @@ export default function Page() {
         ],
         position: {
           positionId: txConfig.positionId,
-          pool: 'USDC/WETH 0.05%',
+          pool: marketPoolLabel(),
           token0Amount: txConfig.position.amount0.toString(),
           token1Amount: txConfig.position.amount1.toString(),
           liquidity: txConfig.position.liquidity.toString(),
@@ -684,13 +686,13 @@ export default function Page() {
               rows={2}
               value={goal}
               onChange={(e) => setGoal(e.target.value)}
-              placeholder="What do you want to do? e.g. Earn yield on my USDC with low risk"
+              placeholder={marketIntentPlaceholder()}
               disabled={isLoading}
             />
 
             <div className="form-row">
               <div>
-                <label className="field-label">Amount (USDC)</label>
+                <label className="field-label">{marketAmountLabel()}</label>
                 <input
                   className="field-input"
                   value={amount}
@@ -699,7 +701,7 @@ export default function Page() {
                   placeholder="100"
                   disabled={isLoading}
                 />
-                {amountTooSmall && <div className="field-error">Minimum 10 USDC</div>}
+                {amountTooSmall && <div className="field-error">Minimum 10 {ACTIVE_MARKET.inputTokenSymbol}</div>}
               </div>
               <div>
                 <label className="field-label">Risk</label>
@@ -746,7 +748,7 @@ export default function Page() {
             <div className="section-label" style={{ margin: 0 }}>Intent summary</div>
             <div style={{ display: 'grid', gap: 8, marginTop: 10, fontSize: 14 }}>
               <div><strong>Goal:</strong> {goal}</div>
-              <div><strong>Amount:</strong> {amount} USDC</div>
+              <div><strong>Amount:</strong> {amount} {ACTIVE_MARKET.inputTokenSymbol}</div>
               <div><strong>Risk:</strong> {RISK_LABEL[risk]}</div>
             </div>
             <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-faint)' }}>
@@ -885,9 +887,10 @@ export default function Page() {
               </span>
             </div>
             <div style={{ display: 'grid', gap: 6, fontSize: 14, marginBottom: 10 }}>
-              <div><strong>Intent amount:</strong> {amount} USDC</div>
+              <div><strong>Intent amount:</strong> {amount} {ACTIVE_MARKET.inputTokenSymbol}</div>
               <div><strong>Risk:</strong> {RISK_LABEL[risk]}</div>
               <div><strong>Plan:</strong> {selectedPlan.label}</div>
+              <div><strong>Target pool:</strong> {marketPoolLabel()}</div>
             </div>
             <div style={{
               padding: '8px 10px',
@@ -912,8 +915,8 @@ export default function Page() {
                 }}>
                   <strong>{index + 1}.</strong> {stepItem.type === 'swap' ? 'Swap' : 'Add liquidity'}{' '}
                   {stepItem.type === 'swap'
-                    ? `${fmt(stepItem.amountIn ?? '0', 6)} USDC → ${fmt(stepItem.estimatedAmountOut ?? '0', 18)} WETH`
-                    : `${fmt(stepItem.token0AmountIn ?? '0', 6)} USDC + ${fmt(stepItem.token1AmountIn ?? '0', 18)} WETH`}
+                    ? `${fmt(stepItem.amountIn ?? '0', 6)} ${ACTIVE_MARKET.inputTokenSymbol} → ${fmt(stepItem.estimatedAmountOut ?? '0', 18)} ${ACTIVE_MARKET.outputTokenSymbol}`
+                    : `${fmt(stepItem.token0AmountIn ?? '0', 6)} ${ACTIVE_MARKET.inputTokenSymbol} + ${fmt(stepItem.token1AmountIn ?? '0', 18)} ${ACTIVE_MARKET.outputTokenSymbol}`}
                 </div>
               ))}
             </div>
@@ -994,11 +997,11 @@ export default function Page() {
           </div>
           <div className="position-stats">
             <div className="position-stat">
-              <div className="position-stat-val">{fmt(execution.position.token0Amount, 6)} USDC</div>
+              <div className="position-stat-val">{fmt(execution.position.token0Amount, 6)} {ACTIVE_MARKET.inputTokenSymbol}</div>
               <div className="position-stat-lbl">Deposited</div>
             </div>
             <div className="position-stat">
-              <div className="position-stat-val">{fmt(execution.position.token1Amount, 18)} WETH</div>
+              <div className="position-stat-val">{fmt(execution.position.token1Amount, 18)} {ACTIVE_MARKET.outputTokenSymbol}</div>
               <div className="position-stat-lbl">Converted</div>
             </div>
           </div>

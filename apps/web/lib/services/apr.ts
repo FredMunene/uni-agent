@@ -1,3 +1,5 @@
+import { ACTIVE_MARKET, type MarketConfig } from '../markets';
+
 type YieldPool = {
   chain?: string;
   project?: string;
@@ -43,7 +45,7 @@ const DEFAULT_APRS = {
 const CACHE_TTL_MS = 10 * 60 * 1000;
 const YIELDS_URL = 'https://yields.llama.fi/pools';
 
-let cachedSnapshot: { value: AprSnapshot; expiresAt: number } | null = null;
+let cachedSnapshot: { marketId: string; value: AprSnapshot; expiresAt: number } | null = null;
 
 function normalize(value?: string | null): string {
   return (value ?? '').toLowerCase();
@@ -74,10 +76,10 @@ function chooseBest(pools: YieldPool[], predicate: (pool: YieldPool) => boolean)
     .sort((a, b) => (b.tvlUsd ?? 0) - (a.tvlUsd ?? 0))[0] ?? null;
 }
 
-function fallbackSnapshot(): AprSnapshot {
+function fallbackSnapshot(market: MarketConfig): AprSnapshot {
   const now = new Date().toISOString();
   const makePool = (label: string, apyBps: number): AprPool => ({
-    chain: 'Base',
+    chain: market.chainLabel,
     project: 'fallback',
     symbol: label,
     pool: `fallback-${label}`,
@@ -87,17 +89,17 @@ function fallbackSnapshot(): AprSnapshot {
   });
 
   return {
-    stable: makePool('USDC-USDT', DEFAULT_APRS.stable),
-    balanced: makePool('USDC-WETH', DEFAULT_APRS.balanced),
-    aggressive: makePool('USDC-WETH', DEFAULT_APRS.aggressive),
+    stable: makePool(market.stableReferenceSymbols.join('-').toUpperCase(), DEFAULT_APRS.stable),
+    balanced: makePool(market.lpSymbols.join('-').toUpperCase(), DEFAULT_APRS.balanced),
+    aggressive: makePool(market.lpSymbols.join('-').toUpperCase(), DEFAULT_APRS.aggressive),
     source: 'fallback',
     updatedAt: now,
   };
 }
 
-export async function getAprSnapshot(): Promise<AprSnapshot> {
+export async function getAprSnapshot(market: MarketConfig = ACTIVE_MARKET): Promise<AprSnapshot> {
   const now = Date.now();
-  if (cachedSnapshot && cachedSnapshot.expiresAt > now) {
+  if (cachedSnapshot && cachedSnapshot.marketId === market.id && cachedSnapshot.expiresAt > now) {
     return cachedSnapshot.value;
   }
 
@@ -109,14 +111,14 @@ export async function getAprSnapshot(): Promise<AprSnapshot> {
     const pools = Array.isArray(payload.data) ? payload.data : [];
 
     const stablePool =
-      chooseBest(pools, (pool) => isBaseUniswap(pool) && pool.stablecoin === true && matchesSymbols(pool, ['usdc', 'usdt']))
-      ?? chooseBest(pools, (pool) => isBaseUniswap(pool) && matchesSymbols(pool, ['usdc', 'usdt']))
+      chooseBest(pools, (pool) => isBaseUniswap(pool) && pool.stablecoin === true && matchesSymbols(pool, market.stableReferenceSymbols))
+      ?? chooseBest(pools, (pool) => isBaseUniswap(pool) && matchesSymbols(pool, market.stableReferenceSymbols))
       ?? chooseBest(pools, (pool) => normalize(pool.chain) === 'base' && pool.stablecoin === true)
       ?? null;
 
     const lpPool =
-      chooseBest(pools, (pool) => isBaseUniswap(pool) && matchesSymbols(pool, ['usdc', 'weth']))
-      ?? chooseBest(pools, (pool) => isBaseUniswap(pool) && matchesSymbols(pool, ['usdc']))
+      chooseBest(pools, (pool) => isBaseUniswap(pool) && matchesSymbols(pool, market.lpSymbols))
+      ?? chooseBest(pools, (pool) => isBaseUniswap(pool) && matchesSymbols(pool, [market.lpSymbols[0] ?? '']))
       ?? null;
 
     if (!stablePool || !lpPool) {
@@ -124,9 +126,9 @@ export async function getAprSnapshot(): Promise<AprSnapshot> {
     }
 
     const stable = {
-      chain: stablePool.chain ?? 'Base',
+      chain: stablePool.chain ?? market.chainLabel,
       project: stablePool.project ?? 'uniswap',
-      symbol: stablePool.symbol ?? 'USDC-USDT',
+      symbol: stablePool.symbol ?? market.stableReferenceSymbols.join('-').toUpperCase(),
       pool: stablePool.pool ?? 'stable',
       tvlUsd: stablePool.tvlUsd ?? 0,
       apy: toApy(stablePool),
@@ -135,9 +137,9 @@ export async function getAprSnapshot(): Promise<AprSnapshot> {
 
     const balancedApy = toApyBps(lpPool);
     const balanced = {
-      chain: lpPool.chain ?? 'Base',
+      chain: lpPool.chain ?? market.chainLabel,
       project: lpPool.project ?? 'uniswap',
-      symbol: lpPool.symbol ?? 'USDC-WETH',
+      symbol: lpPool.symbol ?? market.lpSymbols.join('-').toUpperCase(),
       pool: lpPool.pool ?? 'balanced',
       tvlUsd: lpPool.tvlUsd ?? 0,
       apy: toApy(lpPool),
@@ -159,11 +161,11 @@ export async function getAprSnapshot(): Promise<AprSnapshot> {
       updatedAt: new Date().toISOString(),
     };
 
-    cachedSnapshot = { value: snapshot, expiresAt: now + CACHE_TTL_MS };
+    cachedSnapshot = { marketId: market.id, value: snapshot, expiresAt: now + CACHE_TTL_MS };
     return snapshot;
   } catch {
-    const snapshot = fallbackSnapshot();
-    cachedSnapshot = { value: snapshot, expiresAt: now + CACHE_TTL_MS };
+    const snapshot = fallbackSnapshot(market);
+    cachedSnapshot = { marketId: market.id, value: snapshot, expiresAt: now + CACHE_TTL_MS };
     return snapshot;
   }
 }

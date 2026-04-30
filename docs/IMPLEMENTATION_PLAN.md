@@ -45,6 +45,7 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 - [x] Landing page with Human / Agent mode selector
 - [x] Human flow: intent input → 3 strategy cards → approval → execution → position
 - [x] Selected strategy collapses into an exact-plan approval screen before wallet signing
+- [x] Human flow copy and status surfaces read from the active market config
 - [x] Agent flow: solver API docs with code snippets + economics table (copy buttons)
 - [x] RainbowKit v2 wallet connect (MetaMask + Coinbase)
 - [x] ENS + Basename resolution displayed in wallet button
@@ -70,6 +71,7 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 - [x] Strategy picker cards with APR, gas, max loss, risk badge
 - [x] `recommendedPlanId` selected by risk preference
 - [x] Explicit v0 market target: Base `USDC/WETH 0.05%`, with market config abstraction for future pairs
+- [x] UI and status routes consume the same active market labels
 - [ ] `lib/services/apr.ts` — wire live Uniswap v3 subgraph query (currently uses static snapshot fallback)
 
 ---

@@ -7,11 +7,15 @@ pragma solidity ^0.8.24;
 contract IntentRegistry {
     // ── constants ────────────────────────────────────────────────────────────
 
-    uint256 public constant REGISTRATION_STAKE = 0.05 ether;
-    uint256 public constant BID_BOND           = 0.001 ether;
-    uint256 public constant WITHDRAWAL_DELAY   = 24 hours;
-    uint256 public constant SOLVER_SHARE_BPS   = 7000;  // 70% of fee to solver
-    uint256 public constant BPS_DENOM          = 10_000;
+    uint256 public constant WITHDRAWAL_DELAY = 24 hours;
+    uint256 public constant SOLVER_SHARE_BPS = 7000;  // 70% of fee to solver
+    uint256 public constant BPS_DENOM        = 10_000;
+
+    // ── configurable params (owner can update) ────────────────────────────────
+    // Defaults are intentionally low for testnet. Set higher on mainnet via setters.
+
+    uint256 public registrationStake = 0.001 ether;  // mainnet target: 0.05 ETH
+    uint256 public bidBond           = 0.0001 ether; // mainnet target: 0.001 ETH
 
     // ── types ────────────────────────────────────────────────────────────────
 
@@ -31,19 +35,18 @@ contract IntentRegistry {
         uint256 withdrawalRequestedAt;
     }
 
-    /// @notice Reputation metrics, updated by reportOutcome after each fulfilled intent.
     struct Reputation {
-        uint256 reportedCount;   // number of outcomes reported so far
+        uint256 reportedCount;
         uint256 avgOutcomeScore; // 0–10000 bps running mean (APR accuracy × in-range)
         uint256 avgAprAccuracy;  // 0–10000 bps running mean
         uint256 avgInRangeBps;   // 0–10000 bps running mean
-        uint256 lastReportedAt;  // timestamp of most recent outcome report
+        uint256 lastReportedAt;
     }
 
     struct Strategy {
         address solver;
         bytes32 planHash;
-        uint256 quotedApyBps;  // APY promised by solver at submission time
+        uint256 quotedApyBps;
         uint256 validUntil;
         uint256 bidBond;
         bool    refunded;
@@ -62,7 +65,10 @@ contract IntentRegistry {
 
     address public immutable owner;
     address public treasury;
-    address public oracle; // authorised to call reportOutcome
+    address public oracle;
+    bool    public paused;
+
+    uint256 public treasuryBalance; // accrued fees — pull via withdrawTreasury()
 
     mapping(address  => Solver)     public solvers;
     mapping(address  => Reputation) public reputation;
@@ -70,7 +76,7 @@ contract IntentRegistry {
     mapping(bytes32  => Intent)     public intents;
     mapping(bytes32  => Strategy)   public strategies;
     mapping(bytes32  => bytes32[])  public intentStrategies;
-    mapping(bytes32  => bool)       public outcomeReported; // intentId → reported
+    mapping(bytes32  => bool)       public outcomeReported;
 
     // ── events ───────────────────────────────────────────────────────────────
 
@@ -78,7 +84,6 @@ contract IntentRegistry {
     event SolverWithdrawalRequested(address indexed solver, uint256 availableAt);
     event SolverWithdrawn(address indexed solver, uint256 amount);
     event SolverSlashed(address indexed solver, uint256 amount, string reason);
-    event OracleUpdated(address indexed oracle);
 
     event IntentCreated(bytes32 indexed intentId, address indexed user, address asset, uint256 amount);
     event StrategySubmitted(bytes32 indexed intentId, bytes32 indexed strategyId, address indexed solver);
@@ -87,9 +92,18 @@ contract IntentRegistry {
     event BidBondRefunded(bytes32 indexed strategyId, address indexed solver, uint256 amount);
     event OutcomeReported(bytes32 indexed intentId, address indexed solver, uint256 outcomeScore, uint256 aprAccuracy, uint256 inRangeBps);
 
+    event RegistrationStakeUpdated(uint256 oldStake, uint256 newStake);
+    event BidBondUpdated(uint256 oldBond, uint256 newBond);
+    event TreasuryWithdrawn(address indexed to, uint256 amount);
+    event OracleUpdated(address indexed oracle);
+    event TreasuryUpdated(address indexed treasury);
+    event Paused(address indexed by);
+    event Unpaused(address indexed by);
+
     // ── errors ───────────────────────────────────────────────────────────────
 
     error Unauthorized();
+    error ContractPaused();
     error WrongStake();
     error WrongBidBond();
     error AlreadyRegistered();
@@ -106,13 +120,26 @@ contract IntentRegistry {
     error TransferFailed();
     error AlreadyReported();
     error QuotedApyZero();
+    error NothingToWithdraw();
+
+    // ── modifiers ────────────────────────────────────────────────────────────
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
+        _;
+    }
+
+    modifier onlyOwner() {
+        if (msg.sender != owner) revert Unauthorized();
+        _;
+    }
 
     // ── constructor ──────────────────────────────────────────────────────────
 
     constructor(address _treasury) {
         owner    = msg.sender;
         treasury = _treasury;
-        oracle   = msg.sender; // owner acts as oracle until upgraded
+        oracle   = msg.sender;
     }
 
     // ── solver registration ──────────────────────────────────────────────────
@@ -123,9 +150,9 @@ contract IntentRegistry {
         string calldata ensName,
         bytes4 builderCode,
         string calldata endpoint
-    ) external payable {
-        if (msg.value != REGISTRATION_STAKE) revert WrongStake();
-        if (solvers[msg.sender].stake != 0)  revert AlreadyRegistered();
+    ) external payable whenNotPaused {
+        if (msg.value != registrationStake) revert WrongStake();
+        if (solvers[msg.sender].stake != 0) revert AlreadyRegistered();
         if (builderCodeToSolver[builderCode] != address(0)) revert BuilderCodeTaken();
 
         solvers[msg.sender] = Solver({
@@ -172,7 +199,7 @@ contract IntentRegistry {
         address asset,
         uint256 amount,
         uint8   risk
-    ) external {
+    ) external whenNotPaused {
         intents[intentId] = Intent({
             user:               user,
             asset:              asset,
@@ -184,15 +211,13 @@ contract IntentRegistry {
         emit IntentCreated(intentId, user, asset, amount);
     }
 
-    /// @param quotedApyBps  APY the solver is promising (e.g. 1240 = 12.4%). Stored
-    ///                      on-chain so reportOutcome can measure accuracy later.
     function submitStrategy(
         bytes32 intentId,
         bytes32 planHash,
         uint256 quotedApyBps,
         uint256 validUntil
-    ) external payable returns (bytes32 strategyId) {
-        if (msg.value != BID_BOND) revert WrongBidBond();
+    ) external payable whenNotPaused returns (bytes32 strategyId) {
+        if (msg.value != bidBond) revert WrongBidBond();
         if (quotedApyBps == 0) revert QuotedApyZero();
         Solver storage s = solvers[msg.sender];
         if (s.stake == 0 || s.status != SolverStatus.Active) revert SolverNotActive();
@@ -213,7 +238,7 @@ contract IntentRegistry {
         emit StrategySubmitted(intentId, strategyId, msg.sender);
     }
 
-    function selectStrategy(bytes32 intentId, bytes32 strategyId) external {
+    function selectStrategy(bytes32 intentId, bytes32 strategyId) external whenNotPaused {
         Intent storage intent = intents[intentId];
         if (intent.user != msg.sender) revert NotIntentUser();
         if (intent.status != IntentStatus.Open) revert IntentNotOpen();
@@ -228,9 +253,7 @@ contract IntentRegistry {
         emit StrategySelected(intentId, strategyId, strat.solver);
     }
 
-    /// @notice Called by protocol after on-chain execution is confirmed.
-    ///         Routes fee via builder code: 70% solver, 30% treasury.
-    function fulfillIntent(bytes32 intentId, bytes4 builderCode) external payable {
+    function fulfillIntent(bytes32 intentId, bytes4 builderCode) external payable whenNotPaused {
         Intent storage intent = intents[intentId];
         if (intent.status != IntentStatus.Selected) revert IntentNotSelected();
 
@@ -252,8 +275,11 @@ contract IntentRegistry {
         strat.bidBond  = 0;
         strat.refunded = true;
 
+        // Solver: immediate push (they earned it)
         _send(s.feeRecipient, solverShare + bondReturn);
-        _send(treasury, treasuryShare);
+
+        // Treasury: pull pattern — accumulate, owner withdraws when ready
+        treasuryBalance += treasuryShare;
 
         emit IntentFulfilled(intentId, strategyId, strat.solver, msg.value);
     }
@@ -274,13 +300,6 @@ contract IntentRegistry {
 
     // ── reputation ───────────────────────────────────────────────────────────
 
-    /// @notice Report the actual outcome of a fulfilled intent.
-    ///         Only callable by owner or designated oracle.
-    ///         See ADR-001 for scoring formula.
-    ///
-    /// @param intentId       The fulfilled intent to score.
-    /// @param actualFeesBps  Actual APY earned (read from PositionManager after 7 days).
-    /// @param inRangeBps     % of time position was in tick range (0–10000).
     function reportOutcome(
         bytes32 intentId,
         uint256 actualFeesBps,
@@ -295,15 +314,12 @@ contract IntentRegistry {
         Strategy storage strat = strategies[intent.selectedStrategyId];
         address solverAddr = strat.solver;
 
-        // APR accuracy: how close was the quoted APY to actual? Capped at 100%.
         uint256 aprAccuracy = strat.quotedApyBps == 0
             ? 0
             : _min((actualFeesBps * BPS_DENOM) / strat.quotedApyBps, BPS_DENOM);
 
-        // Combined score: must be good on both dimensions.
         uint256 outcomeScore = (aprAccuracy * _min(inRangeBps, BPS_DENOM)) / BPS_DENOM;
 
-        // Update running averages on the solver's reputation record.
         Reputation storage rep = reputation[solverAddr];
         uint256 n = rep.reportedCount;
 
@@ -320,8 +336,29 @@ contract IntentRegistry {
 
     // ── admin ────────────────────────────────────────────────────────────────
 
-    function slashSolver(address solver, string calldata reason) external {
-        if (msg.sender != owner) revert Unauthorized();
+    /// @notice Update registration stake. Affects future registrations only.
+    function setRegistrationStake(uint256 newStake) external onlyOwner {
+        emit RegistrationStakeUpdated(registrationStake, newStake);
+        registrationStake = newStake;
+    }
+
+    /// @notice Update bid bond. Affects future strategy submissions only.
+    function setBidBond(uint256 newBond) external onlyOwner {
+        emit BidBondUpdated(bidBond, newBond);
+        bidBond = newBond;
+    }
+
+    /// @notice Withdraw accumulated treasury fees to the treasury address.
+    function withdrawTreasury() external {
+        if (msg.sender != owner && msg.sender != treasury) revert Unauthorized();
+        uint256 amount = treasuryBalance;
+        if (amount == 0) revert NothingToWithdraw();
+        treasuryBalance = 0;
+        _send(treasury, amount);
+        emit TreasuryWithdrawn(treasury, amount);
+    }
+
+    function slashSolver(address solver, string calldata reason) external onlyOwner {
         Solver storage s = solvers[solver];
         if (s.status == SolverStatus.Slashed) return;
 
@@ -330,29 +367,56 @@ contract IntentRegistry {
         s.slashedAmount += amount;
         s.status         = SolverStatus.Slashed;
 
-        _send(treasury, amount);
+        // Slashed stake goes to treasury balance (pull pattern)
+        treasuryBalance += amount;
         emit SolverSlashed(solver, amount, reason);
     }
 
-    /// @notice Upgrade the oracle address. In v1 this will be a ZK verifier contract.
-    function setOracle(address _oracle) external {
-        if (msg.sender != owner) revert Unauthorized();
+    function setOracle(address _oracle) external onlyOwner {
         oracle = _oracle;
         emit OracleUpdated(_oracle);
     }
 
-    function setTreasury(address _treasury) external {
-        if (msg.sender != owner) revert Unauthorized();
+    function setTreasury(address _treasury) external onlyOwner {
         treasury = _treasury;
+        emit TreasuryUpdated(_treasury);
     }
 
-    // ── views ────────────────────────────────────────────────────────────────
+    function pause() external onlyOwner {
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    function unpause() external onlyOwner {
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
+    // ── views ─────────────────────────────────────────────────────────────────
+
+    /// @notice Everything an agent needs to know before registering.
+    function getProtocolParams() external view returns (
+        uint256 currentRegistrationStake,
+        uint256 currentBidBond,
+        uint256 withdrawalDelay,
+        uint256 solverShareBps,
+        uint256 treasuryShareBps,
+        bool    isPaused
+    ) {
+        return (
+            registrationStake,
+            bidBond,
+            WITHDRAWAL_DELAY,
+            SOLVER_SHARE_BPS,
+            BPS_DENOM - SOLVER_SHARE_BPS,
+            paused
+        );
+    }
 
     function getIntentStrategies(bytes32 intentId) external view returns (bytes32[] memory) {
         return intentStrategies[intentId];
     }
 
-    /// @notice Convenience view: all reputation fields for a solver in one call.
     function getReputation(address solver) external view returns (
         uint256 fulfilledCount,
         uint256 reportedCount,

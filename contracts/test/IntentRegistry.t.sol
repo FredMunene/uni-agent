@@ -19,8 +19,9 @@ contract IntentRegistryTest is Test {
     bytes32 intentId = keccak256("intent-001");
     bytes32 planHash = keccak256("plan-balanced");
 
-    uint256 constant STAKE = 0.05 ether;
-    uint256 constant BOND  = 0.001 ether;
+    // Match contract defaults: 0.001 ETH stake, 0.0001 ETH bid bond
+    uint256 constant STAKE = 0.001 ether;
+    uint256 constant BOND  = 0.0001 ether;
     uint256 constant QUOTED_APY = 1240; // 12.40% in bps
 
     function setUp() public {
@@ -170,7 +171,7 @@ contract IntentRegistryTest is Test {
         _createIntent();
         vm.prank(solver1);
         vm.expectRevert(IntentRegistry.WrongBidBond.selector);
-        registry.submitStrategy{value: 0.0001 ether}(intentId, planHash, QUOTED_APY, block.timestamp + 5 minutes);
+        registry.submitStrategy{value: BOND + 1}(intentId, planHash, QUOTED_APY, block.timestamp + 5 minutes);
     }
 
     function test_submit_strategy_reverts_zero_quoted_apy() public {
@@ -246,16 +247,17 @@ contract IntentRegistryTest is Test {
         registry.selectStrategy(intentId, stratId);
 
         uint256 fee = 1 ether;
-        uint256 solverBefore   = solver1.balance;
-        uint256 treasuryBefore = treasury.balance;
+        uint256 solverBefore = solver1.balance;
 
         registry.fulfillIntent{value: fee}(intentId, code1);
 
         uint256 expectedSolver   = (fee * 7000) / 10_000;
         uint256 expectedTreasury = fee - expectedSolver;
 
-        assertEq(solver1.balance,   solverBefore   + expectedSolver + BOND);
-        assertEq(treasury.balance,  treasuryBefore + expectedTreasury);
+        // solver gets fee share + bond back immediately (push)
+        assertEq(solver1.balance, solverBefore + expectedSolver + BOND);
+        // treasury uses pull pattern — balance accrues in contract
+        assertEq(registry.treasuryBalance(), expectedTreasury);
     }
 
     function test_fulfill_intent_increments_fulfilled_count() public {
@@ -365,7 +367,6 @@ contract IntentRegistryTest is Test {
         _createIntent();
         _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
 
-        // actual equals quoted, fully in range
         registry.reportOutcome(intentId, QUOTED_APY, 10000);
 
         (,, uint256 score, uint256 aprAcc,,, ) = registry.getReputation(solver1);
@@ -434,7 +435,6 @@ contract IntentRegistryTest is Test {
         _createIntent();
         _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
 
-        // owner upgrades oracle to separate address
         registry.setOracle(oracle);
 
         vm.prank(oracle);
@@ -446,11 +446,12 @@ contract IntentRegistryTest is Test {
 
     // ── slashing ─────────────────────────────────────────────────────────────
 
-    function test_slash_solver_transfers_stake_to_treasury() public {
+    function test_slash_solver_accrues_to_treasury_balance() public {
         _register(solver1, code1);
-        uint256 before = treasury.balance;
         registry.slashSolver(solver1, "bad calldata");
-        assertEq(treasury.balance, before + STAKE);
+
+        // pull pattern: stake goes to treasuryBalance, not pushed to treasury address
+        assertEq(registry.treasuryBalance(), STAKE);
 
         (,,,,, uint256 stake, , uint256 slashed, IntentRegistry.SolverStatus status,) = registry.solvers(solver1);
         assertEq(stake, 0);
@@ -469,6 +470,142 @@ contract IntentRegistryTest is Test {
         _register(solver1, code1);
         registry.slashSolver(solver1, "first");
         registry.slashSolver(solver1, "second");
+    }
+
+    // ── treasury pull pattern ─────────────────────────────────────────────────
+
+    function test_withdraw_treasury_sends_accrued_balance() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+
+        uint256 expected = registry.treasuryBalance();
+        assertGt(expected, 0);
+
+        uint256 before = treasury.balance;
+        registry.withdrawTreasury();
+
+        assertEq(treasury.balance, before + expected);
+        assertEq(registry.treasuryBalance(), 0);
+    }
+
+    function test_withdraw_treasury_reverts_nothing_to_withdraw() public {
+        vm.expectRevert(IntentRegistry.NothingToWithdraw.selector);
+        registry.withdrawTreasury();
+    }
+
+    function test_withdraw_treasury_reverts_for_non_owner() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+
+        vm.prank(solver1);
+        vm.expectRevert(IntentRegistry.Unauthorized.selector);
+        registry.withdrawTreasury();
+    }
+
+    function test_withdraw_treasury_callable_by_treasury_address() public {
+        _register(solver1, code1);
+        _createIntent();
+        _selectAndFulfill(_submit(solver1, QUOTED_APY), code1);
+
+        vm.prank(treasury);
+        registry.withdrawTreasury(); // must not revert
+    }
+
+    // ── admin setters ─────────────────────────────────────────────────────────
+
+    function test_set_registration_stake_updates_value() public {
+        uint256 newStake = 0.05 ether;
+        registry.setRegistrationStake(newStake);
+        assertEq(registry.registrationStake(), newStake);
+    }
+
+    function test_set_registration_stake_affects_next_registration() public {
+        uint256 newStake = 0.002 ether;
+        registry.setRegistrationStake(newStake);
+
+        vm.prank(solver1);
+        vm.expectRevert(IntentRegistry.WrongStake.selector);
+        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
+
+        vm.prank(solver1);
+        registry.registerSolver{value: newStake}(solver1, "X", "x.eth", code1, "");
+    }
+
+    function test_set_registration_stake_reverts_for_non_owner() public {
+        vm.prank(solver1);
+        vm.expectRevert(IntentRegistry.Unauthorized.selector);
+        registry.setRegistrationStake(1 ether);
+    }
+
+    function test_set_bid_bond_updates_value() public {
+        uint256 newBond = 0.001 ether;
+        registry.setBidBond(newBond);
+        assertEq(registry.bidBond(), newBond);
+    }
+
+    function test_set_bid_bond_reverts_for_non_owner() public {
+        vm.prank(solver1);
+        vm.expectRevert(IntentRegistry.Unauthorized.selector);
+        registry.setBidBond(1 ether);
+    }
+
+    function test_get_protocol_params_returns_correct_values() public {
+        (
+            uint256 stake,
+            uint256 bond,
+            uint256 delay,
+            uint256 solverShare,
+            uint256 treasuryShare,
+            bool isPaused
+        ) = registry.getProtocolParams();
+
+        assertEq(stake, 0.001 ether);
+        assertEq(bond, 0.0001 ether);
+        assertEq(delay, 24 hours);
+        assertEq(solverShare, 7000);
+        assertEq(treasuryShare, 3000);
+        assertEq(isPaused, false);
+    }
+
+    // ── pause / unpause ───────────────────────────────────────────────────────
+
+    function test_pause_blocks_registration() public {
+        registry.pause();
+        vm.prank(solver1);
+        vm.expectRevert(IntentRegistry.ContractPaused.selector);
+        registry.registerSolver{value: STAKE}(solver1, "X", "x.eth", code1, "");
+    }
+
+    function test_pause_blocks_create_intent() public {
+        registry.pause();
+        vm.expectRevert(IntentRegistry.ContractPaused.selector);
+        registry.createIntent(intentId, user, address(0), 1000e6, 1);
+    }
+
+    function test_pause_blocks_submit_strategy() public {
+        _register(solver1, code1);
+        _createIntent();
+        registry.pause();
+
+        vm.prank(solver1);
+        vm.expectRevert(IntentRegistry.ContractPaused.selector);
+        registry.submitStrategy{value: BOND}(intentId, planHash, QUOTED_APY, block.timestamp + 5 minutes);
+    }
+
+    function test_unpause_resumes_operations() public {
+        registry.pause();
+        registry.unpause();
+
+        // should succeed after unpause
+        _register(solver1, code1);
+    }
+
+    function test_pause_reverts_for_non_owner() public {
+        vm.prank(solver1);
+        vm.expectRevert(IntentRegistry.Unauthorized.selector);
+        registry.pause();
     }
 
     // ── two solvers competing ─────────────────────────────────────────────────

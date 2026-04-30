@@ -35,6 +35,7 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 - [x] Uniswap Trading API quote integration
 - [x] 3-strategy output: Conservative / Balanced / Aggressive from one Gemini loop
 - [x] Live APR snapshots per strategy (stable / balanced / aggressive pools)
+- [x] Active market config layer for one target LP market, with expansion path for more pairs
 - [x] `SolverMeta` type: `solverAddress`, `solverName`, `bidBondWei`, `validUntil`
 - [x] `StrategyLabel`, `SolverStatus` types in shared package
 - [x] Retry logic for transient Gemini 503 / 429 errors
@@ -68,6 +69,7 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 - [x] Live APR snapshots (stable / balanced / aggressive)
 - [x] Strategy picker cards with APR, gas, max loss, risk badge
 - [x] `recommendedPlanId` selected by risk preference
+- [x] Explicit v0 market target: Base `USDC/WETH 0.05%`, with market config abstraction for future pairs
 - [ ] `lib/services/apr.ts` — wire live Uniswap v3 subgraph query (currently uses static snapshot fallback)
 
 ---
@@ -194,6 +196,7 @@ Milestone: UI detects out-of-range position and offers one-click rebalance.
 
 **In scope:**
 - Open REST API (protocol layer, any dApp integrates)
+- One production-style target market for v0: Base `USDC/WETH 0.05%`
 - 3 competing AI-generated strategies with real APR from Uniswap subgraph
 - Solver registration + stake + bid bond (IntentRegistry.sol)
 - Solver fee settlement on-chain (0.1% of position, 70% to solver)
@@ -202,6 +205,7 @@ Milestone: UI detects out-of-range position and offers one-click rebalance.
 
 **Out of scope:**
 - Multi-chain routing / bridging
+- Broad multi-market LP support in v0 (infra is being shaped for expansion, but the shipped target remains one market)
 - Borrow / lending steps
 - Keeper network (autonomous signing — rebalancing requires user approval by design)
 - Solver slashing enforcement (tracked but not auto-enforced in hackathon scope)

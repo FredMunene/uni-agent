@@ -8,6 +8,7 @@ import { ACTIVE_MARKET } from '@/lib/markets';
 import { buildDefaultGoal, marketAmountLabel, marketIntentPlaceholder, marketPoolLabel } from '@/lib/marketPresentation';
 import { buildExecutionDigest, buildExecutorExecution } from '@/lib/onchain';
 import type { MonitorSnapshot } from '@/lib/services/monitor';
+import { derivePositionRangeFromPlan, formatPositionRange } from '@/lib/services/positionRange';
 import { deriveRebalanceIntentDraft } from '@/lib/services/rebalance';
 
 function useResolvedName(address?: `0x${string}`) {
@@ -135,6 +136,9 @@ type Execution = {
     token0Amount: string;
     token1Amount: string;
     liquidity?: string;
+    tickLower?: number | null;
+    tickUpper?: number | null;
+    currentTick?: number | null;
   };
 };
 
@@ -641,6 +645,7 @@ export default function Page() {
       const txHash = await writeContractAsync(txConfig);
       if (!publicClient) throw new Error('Public client unavailable.');
       await publicClient.waitForTransactionReceipt({ hash: txHash });
+      const positionRange = derivePositionRangeFromPlan(selectedPlan);
 
       setExecution({
         executionId,
@@ -658,6 +663,9 @@ export default function Page() {
           token0Amount: txConfig.position.amount0.toString(),
           token1Amount: txConfig.position.amount1.toString(),
           liquidity: txConfig.position.liquidity.toString(),
+          tickLower: positionRange?.tickLower ?? null,
+          tickUpper: positionRange?.tickUpper ?? null,
+          currentTick: positionRange?.currentTick ?? null,
         },
       });
       setStep('done');
@@ -1016,6 +1024,19 @@ export default function Page() {
               <div className="position-stat-lbl">Converted</div>
             </div>
           </div>
+          {formatPositionRange(execution.position) && (
+            <div style={{
+              marginBottom: 12,
+              padding: '10px 12px',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              background: 'var(--surface-soft)',
+              fontSize: 12,
+              color: 'var(--text-faint)',
+            }}>
+              target range: {formatPositionRange(execution.position)}
+            </div>
+          )}
           {monitor && (
             <div style={{
               marginBottom: 12,

@@ -152,6 +152,7 @@ Goal: Protocol watches the LP and surfaces rebalancing as a new intent when out 
 - [x] `/api/v1/positions/[posId]/monitor` prefers a live Uniswap v3 `slot0.tick` when `UNISWAP_V3_POOL_ADDRESS` is configured
 - [x] Position UI surfaces whether monitor status comes from a live tick or stored fallback data
 - [x] Execution status payload carries stored range metadata for downstream UI/monitor consumers
+- [x] Position card shows the target LP range from stored execution metadata
 - [ ] `lib/services/monitor.ts` — `viem.readContract` on v4 PoolManager for current tick
 - [ ] Compare current tick to `tickLower` / `tickUpper` stored in Redis
 - [ ] `app/api/v1/positions/[posId]/monitor/route.ts` — returns `{ inRange, currentTick, tickLower, tickUpper, driftPercent }`

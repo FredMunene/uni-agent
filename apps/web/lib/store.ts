@@ -4,6 +4,7 @@ import type { Intent, Plan, Execution } from '@uni-agent/shared';
 const TTL = 3600; // 1 hour — demo data auto-expires
 type ExecutionRecord = Execution & { intentId: string };
 const executionIntentKey = (intentId: string) => `exec:intent:${intentId}`;
+const executionPositionKey = (positionId: string) => `exec:position:${positionId}`;
 
 type MemoryRecord<T> = {
   value: T;
@@ -15,6 +16,7 @@ const memory = {
   plans: new Map<string, MemoryRecord<Plan[]>>(),
   executions: new Map<string, MemoryRecord<ExecutionRecord>>(),
   executionByIntent: new Map<string, MemoryRecord<string>>(),
+  executionByPosition: new Map<string, MemoryRecord<string>>(),
 };
 
 const hasRedisEnv = Boolean(process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN);
@@ -75,10 +77,19 @@ export const store = {
     set: async (id: string, exec: ExecutionRecord) => {
       await write(`exec:${id}`, exec, memory.executions);
       await write(executionIntentKey(exec.intentId), id, memory.executionByIntent);
+      const positionId = (exec as { _positionMeta?: { positionId?: string } })._positionMeta?.positionId;
+      if (positionId) {
+        await write(executionPositionKey(positionId), id, memory.executionByPosition);
+      }
     },
     get: (id: string) => read(`exec:${id}`, memory.executions),
     findByIntent: async (intentId: string) => {
       const execId = (await read<string>(executionIntentKey(intentId), memory.executionByIntent)) ?? null;
+      if (!execId) return null;
+      return read<ExecutionRecord>(`exec:${execId}`, memory.executions);
+    },
+    findByPosition: async (positionId: string) => {
+      const execId = (await read<string>(executionPositionKey(positionId), memory.executionByPosition)) ?? null;
       if (!execId) return null;
       return read<ExecutionRecord>(`exec:${execId}`, memory.executions);
     },
@@ -88,6 +99,10 @@ export const store = {
         const next = { ...existing, ...patch };
         await write(`exec:${id}`, next, memory.executions);
         await write(executionIntentKey(existing.intentId), id, memory.executionByIntent);
+        const positionId = (existing as { _positionMeta?: { positionId?: string } })._positionMeta?.positionId;
+        if (positionId) {
+          await write(executionPositionKey(positionId), id, memory.executionByPosition);
+        }
       }
     },
   },

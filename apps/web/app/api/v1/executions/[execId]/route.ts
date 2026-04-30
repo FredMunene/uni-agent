@@ -4,7 +4,18 @@ import type { Plan } from '@uni-agent/shared';
 import { marketPoolLabel } from '@/lib/marketPresentation';
 import { store } from '@/lib/store';
 
-function simulatedExecution(raw: any) {
+type ExecutionWithMeta = {
+  _plan: Plan;
+  _positionMeta?: {
+    tickLower?: number;
+    tickUpper?: number;
+    currentTick?: number;
+  };
+  executionId: string;
+  createdAt: string;
+};
+
+export function simulatedExecution(raw: ExecutionWithMeta & Record<string, unknown>) {
   const plan: Plan = raw._plan;
   const elapsed = Date.now() - new Date(raw.createdAt).getTime();
 
@@ -29,6 +40,9 @@ function simulatedExecution(raw: any) {
         token0Amount: plan.steps[0]?.amountIn ?? '0',
         token1Amount: plan.steps[0]?.estimatedAmountOut ?? '0',
         liquidity: '847392918274',
+        tickLower: raw._positionMeta?.tickLower ?? null,
+        tickUpper: raw._positionMeta?.tickUpper ?? null,
+        currentTick: raw._positionMeta?.currentTick ?? null,
       },
     };
   }

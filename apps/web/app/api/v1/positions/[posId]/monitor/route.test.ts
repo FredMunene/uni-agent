@@ -25,6 +25,7 @@ test('buildStoredMonitorFallback derives a range-aware snapshot from stored exec
   assert.equal(payload.snapshot.tickUpper, 800);
   assert.equal(payload.snapshot.currentTick, 1000);
   assert.equal(payload.snapshot.driftPercent, 10);
+  assert.equal(payload.monitorSource, 'stored_fallback');
   assert.equal(payload.position.amount0, '5000000');
   assert.equal(payload.position.amount1, '1000000000000000');
 });
@@ -36,5 +37,6 @@ test('resolveCurrentTick falls back to stored metadata when no live tick is conf
     },
   });
 
-  assert.equal(tick, -200);
+  assert.equal(tick.currentTick, -200);
+  assert.equal(tick.monitorSource, 'stored_tick');
 });

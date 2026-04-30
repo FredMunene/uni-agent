@@ -57,6 +57,7 @@ export function buildStoredMonitorFallback(posId: string, execution: ExecutionWi
 
   return {
     posId,
+    monitorSource: 'stored_fallback' as const,
     snapshot,
     position: {
       owner: null,
@@ -71,10 +72,20 @@ export function buildStoredMonitorFallback(posId: string, execution: ExecutionWi
   };
 }
 
-export async function resolveCurrentTick(execution: ExecutionWithMeta): Promise<number | undefined> {
+export async function resolveCurrentTick(execution: ExecutionWithMeta): Promise<{
+  currentTick: number | undefined;
+  monitorSource: 'live_tick' | 'stored_tick' | 'unknown';
+}> {
   const liveTick = await maybeReadCurrentUniswapV3Tick();
-  if (typeof liveTick === 'number') return liveTick;
-  return execution._positionMeta?.currentTick;
+  if (typeof liveTick === 'number') {
+    return { currentTick: liveTick, monitorSource: 'live_tick' };
+  }
+
+  if (typeof execution._positionMeta?.currentTick === 'number') {
+    return { currentTick: execution._positionMeta.currentTick, monitorSource: 'stored_tick' };
+  }
+
+  return { currentTick: undefined, monitorSource: 'unknown' };
 }
 
 export async function GET(_req: Request, { params }: { params: Promise<{ posId: string }> }) {
@@ -89,7 +100,9 @@ export async function GET(_req: Request, { params }: { params: Promise<{ posId: 
   }
 
   try {
-    const currentTick = execution ? await resolveCurrentTick(execution) : undefined;
+    const tickResolution = execution
+      ? await resolveCurrentTick(execution)
+      : { currentTick: undefined, monitorSource: 'unknown' as const };
     const position = await client.readContract({
       address: registryAddress as `0x${string}`,
       abi: positionRegistryAbi,
@@ -103,13 +116,14 @@ export async function GET(_req: Request, { params }: { params: Promise<{ posId: 
       token0Amount: position.amount0.toString(),
       token1Amount: position.amount1.toString(),
       liquidity: position.liquidity.toString(),
-      currentTick,
+      currentTick: tickResolution.currentTick,
       tickLower: execution?._positionMeta?.tickLower,
       tickUpper: execution?._positionMeta?.tickUpper,
     });
 
     return NextResponse.json({
       posId,
+      monitorSource: tickResolution.monitorSource,
       snapshot,
       position: {
         owner: position.owner,

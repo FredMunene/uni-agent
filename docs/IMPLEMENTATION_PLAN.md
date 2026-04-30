@@ -148,6 +148,7 @@ Milestone: Real LP position created on Base Sepolia. txHash + positionTokenId in
 Goal: Protocol watches the LP and surfaces rebalancing as a new intent when out of range.
 
 - [x] `lib/services/monitor.ts` derives in-range / drift status when tick bounds are available
+- [x] `/api/v1/positions/[posId]/monitor` can fall back to stored execution tick metadata before the live oracle is finished
 - [ ] `lib/services/monitor.ts` — `viem.readContract` on v4 PoolManager for current tick
 - [ ] Compare current tick to `tickLower` / `tickUpper` stored in Redis
 - [ ] `app/api/v1/positions/[posId]/monitor/route.ts` — returns `{ inRange, currentTick, tickLower, tickUpper, driftPercent }`

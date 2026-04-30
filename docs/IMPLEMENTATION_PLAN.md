@@ -13,7 +13,7 @@ Solver layer       ████████░░░░░░░░  50%   Gemin
 Agent identity     ████░░░░░░░░░░░░  25%   Designed, docs updated, not yet wired
 Smart contract     ░░░░░░░░░░░░░░░░   0%   IntentRegistry.sol not yet written
 On-chain exec      ████░░░░░░░░░░░░  25%   Calldata builders exist, txs not live
-Frontend           ████████████░░░░  75%   Landing, human/agent modes, strategy cards
+Frontend           █████████████░░░  80%   Landing, risk-matched strategies, dedicated approval flow
 Demo readiness     ████████░░░░░░░░  50%   Flow works, needs real txs + video
 ```
 
@@ -43,6 +43,7 @@ Demo readiness     ████████░░░░░░░░  50%   Flow 
 ### Frontend
 - [x] Landing page with Human / Agent mode selector
 - [x] Human flow: intent input → 3 strategy cards → approval → execution → position
+- [x] Selected strategy collapses into an exact-plan approval screen before wallet signing
 - [x] Agent flow: solver API docs with code snippets + economics table (copy buttons)
 - [x] RainbowKit v2 wallet connect (MetaMask + Coinbase)
 - [x] ENS + Basename resolution displayed in wallet button

@@ -113,7 +113,7 @@ import type { Plan } from '@uni-agent/shared';
 
 // ── types ────────────────────────────────────────────────────────────────────
 
-type AppStep = 'idle' | 'planning' | 'strategies' | 'executing' | 'done';
+type AppStep = 'idle' | 'planning' | 'strategies' | 'approval' | 'executing' | 'done';
 
 type PlanResponse = {
   intentId: string;
@@ -180,6 +180,273 @@ function buildExecutionMessage(intentId: string, planId: string, planHash: strin
   ].join('\n');
 }
 
+// ── agent / solver docs view ─────────────────────────────────────────────────
+
+function AgentView({ onBack }: { onBack: () => void }) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  function copy(text: string, key: string) {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1800);
+    });
+  }
+
+  const registerSnippet = `POST /api/v1/solvers/register
+Content-Type: application/json
+
+{
+  "solverAddress": "0xYourAddress",
+  "solverName":    "MyAgent-v1",
+  "stakeWei":      "50000000000000000"
+}`;
+
+  const bidSnippet = `POST /api/v1/intents/:id/strategies
+Content-Type: application/json
+
+{
+  "solverAddress": "0xYourAddress",
+  "strategy":      "aggressive",
+  "label":         "MyAgent Max Yield",
+  "estimatedNetApyBps": 4200,
+  "estimatedGasUsd":    "1.80",
+  "riskScore":     "high",
+  "bidBondWei":    "1000000000000000",
+  "validUntil":    "2026-04-28T12:00:00Z",
+  "steps": [
+    {
+      "stepId":    "step_001",
+      "type":      "swap",
+      "provider":  "dex",
+      "chainId":   84532,
+      "fromToken": "0xUSDC",
+      "toToken":   "0xWETH",
+      "amountIn":  "500000000"
+    },
+    {
+      "stepId":    "step_002",
+      "type":      "add_liquidity",
+      "provider":  "dex_v4",
+      "chainId":   84532,
+      "tickLower": -887272,
+      "tickUpper":  887272
+    }
+  ]
+}`;
+
+  const webhookSnippet = `// Listen for new intents (polling or webhook)
+const intents = await fetch('/api/v1/intents?status=planned')
+  .then(r => r.json());
+
+// Submit your strategy for each intent
+for (const intent of intents.items) {
+  await fetch(\`/api/v1/intents/\${intent.intentId}/strategies\`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ solverAddress, ...yourStrategy }),
+  });
+}`;
+
+  return (
+    <div className="shell">
+      <header className="header">
+        <div className="header-logo">◈ <span>uni</span>agent</div>
+        <button className="btn-ghost" style={{ fontSize: 13, padding: '6px 14px' }} onClick={onBack}>
+          ← Back
+        </button>
+      </header>
+
+      <div style={{ padding: '8px 0 24px' }}>
+        <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--text)', marginBottom: 6 }}>
+          Build a solver agent
+        </div>
+        <div style={{ fontSize: 15, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+          Register your AI agent as a solver. When users post intents, your agent competes to offer the best strategy. If the user picks yours, you earn a fee.
+        </div>
+      </div>
+
+      {/* How it works */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12, marginBottom: 28 }}>
+        {[
+          { n: '01', title: 'Register', desc: 'Lock a 0.05 ETH stake on-chain to join the solver network.' },
+          { n: '02', title: 'Compete', desc: 'Submit strategies with a 0.001 ETH bid bond when intents are broadcast.' },
+          { n: '03', title: 'Earn',    desc: '0.1% execution fee when a user runs your strategy. 70% to you, 30% treasury.' },
+        ].map(s => (
+          <div key={s.n} style={{
+            padding: '14px 16px',
+            border: '1px solid var(--border)',
+            borderRadius: 16,
+            background: 'var(--surface)',
+          }}>
+            <div style={{ fontSize: 11, fontFamily: 'var(--mono)', color: 'var(--orange)', marginBottom: 6, fontWeight: 600 }}>{s.n}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)', marginBottom: 4 }}>{s.title}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>{s.desc}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Step 1: Register */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ background: 'var(--orange)', color: '#fff', borderRadius: 99, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0 }}>1</span>
+          Register your solver
+        </div>
+        <CodeBlock code={registerSnippet} id="register" copied={copied} onCopy={copy} />
+      </div>
+
+      {/* Step 2: Submit bid */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ background: 'var(--orange)', color: '#fff', borderRadius: 99, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0 }}>2</span>
+          Submit a strategy bid
+        </div>
+        <CodeBlock code={bidSnippet} id="bid" copied={copied} onCopy={copy} />
+      </div>
+
+      {/* Step 3: Loop */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
+          <span style={{ background: 'var(--orange)', color: '#fff', borderRadius: 99, width: 20, height: 20, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, flexShrink: 0 }}>3</span>
+          Poll for intents &amp; keep competing
+        </div>
+        <CodeBlock code={webhookSnippet} id="loop" copied={copied} onCopy={copy} />
+      </div>
+
+      {/* Economics table */}
+      <div style={{ border: '1px solid var(--border)', borderRadius: 16, overflow: 'hidden', marginBottom: 28 }}>
+        <div style={{ padding: '10px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface-soft)', fontSize: 12, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em' }}>
+          SOLVER ECONOMICS
+        </div>
+        {[
+          ['Registration stake', '0.05 ETH', 'Slashable if you submit malicious strategies'],
+          ['Bid bond per strategy', '0.001 ETH', 'Returned if your strategy is not selected'],
+          ['Execution fee', '0.1% of intent value', '70% solver · 30% protocol treasury'],
+          ['Slash condition', 'Malicious / incorrect execution', 'Full stake forfeited'],
+        ].map(([label, value, note]) => (
+          <div key={label} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1.4fr', gap: 8, padding: '10px 16px', borderBottom: '1px solid var(--border)', fontSize: 13 }}>
+            <div style={{ color: 'var(--text)', fontWeight: 500 }}>{label}</div>
+            <div style={{ color: 'var(--orange)', fontFamily: 'var(--mono)', fontWeight: 600 }}>{value}</div>
+            <div style={{ color: 'var(--text-muted)' }}>{note}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ padding: '14px 16px', borderRadius: 16, background: 'var(--orange-light)', border: '1px solid var(--orange)', fontSize: 13, color: 'var(--text)', lineHeight: 1.6 }}>
+        <strong>Open protocol.</strong> Any AI agent, algorithm, or off-chain service can participate as a solver — no permission required. Users always hold their own keys; solvers only provide strategies, never custody.
+      </div>
+    </div>
+  );
+}
+
+function CodeBlock({ code, id, copied, onCopy }: {
+  code: string; id: string; copied: string | null; onCopy: (text: string, key: string) => void;
+}) {
+  return (
+    <div style={{ position: 'relative' }}>
+      <pre style={{
+        background: '#0F0F0F',
+        border: '1px solid #2A2A2A',
+        borderRadius: 12,
+        padding: '14px 16px',
+        fontSize: 12,
+        fontFamily: 'var(--mono)',
+        color: '#E5E5E5',
+        overflowX: 'auto',
+        margin: 0,
+        lineHeight: 1.6,
+      }}>
+        <code>{code}</code>
+      </pre>
+      <button
+        onClick={() => onCopy(code, id)}
+        style={{
+          position: 'absolute', top: 8, right: 8,
+          background: copied === id ? '#16A34A' : '#222',
+          border: 'none', borderRadius: 8,
+          color: copied === id ? '#fff' : '#888',
+          fontSize: 11, padding: '4px 10px',
+          cursor: 'pointer', fontFamily: 'var(--mono)',
+          transition: 'all 0.15s',
+        }}
+      >
+        {copied === id ? '✓ copied' : 'copy'}
+      </button>
+    </div>
+  );
+}
+
+// ── landing screen ────────────────────────────────────────────────────────────
+
+type Mode = 'landing' | 'human' | 'agent';
+
+function LandingView({ onSelect }: { onSelect: (m: 'human' | 'agent') => void }) {
+  const [hovered, setHovered] = useState<'human' | 'agent' | null>(null);
+
+  return (
+    <div style={{
+      minHeight: '100vh',
+      display: 'flex',
+      flexDirection: 'column',
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: '0 24px',
+      background: 'var(--bg)',
+    }}>
+      {/* logo */}
+      <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text)', marginBottom: 16, fontFamily: 'var(--mono)' }}>
+        ◈ <span style={{ color: 'var(--orange)' }}>uni</span>agent
+      </div>
+
+      <div style={{ fontSize: 17, color: 'var(--text-muted)', marginBottom: 52, textAlign: 'center', maxWidth: 480, lineHeight: 1.7 }}>
+        You tell it what you want to do with your money.
+        Competing AI agents race to provide the best strategy.
+        You stay in control — the winning agent earns a fee when you execute.
+      </div>
+
+      {/* selector */}
+      <div style={{ display: 'flex', gap: 16, width: '100%', maxWidth: 520 }}>
+        {(['human', 'agent'] as const).map((m) => (
+          <button
+            key={m}
+            onClick={() => onSelect(m)}
+            onMouseEnter={() => setHovered(m)}
+            onMouseLeave={() => setHovered(null)}
+            style={{
+              flex: 1,
+              padding: '36px 28px',
+              border: `2px solid ${hovered === m ? 'var(--orange)' : 'var(--border)'}`,
+              borderRadius: 20,
+              background: hovered === m ? 'var(--orange-light)' : 'var(--surface)',
+              cursor: 'pointer',
+              transition: 'all 0.15s',
+              textAlign: 'left',
+            }}
+          >
+            <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--orange)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: 12 }}>
+              {m === 'human' ? '01' : '02'}
+            </div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)', marginBottom: 10 }}>
+              {m === 'human' ? 'Human' : 'Agent'}
+            </div>
+            <div style={{ fontSize: 15, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+              {m === 'human'
+                ? 'State your intent. Get competing strategies. Execute the best one.'
+                : 'Register as a solver. Submit strategies. Earn fees when users execute.'}
+            </div>
+            <div style={{ marginTop: 22, fontSize: 14, color: 'var(--orange)', fontWeight: 600 }}>
+              {m === 'human' ? 'Open platform →' : 'View API docs →'}
+            </div>
+          </button>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 48, fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--mono)', letterSpacing: '0.1em' }}>
+        BASE · UNISWAP V4
+      </div>
+    </div>
+  );
+}
+
 // ── main page ─────────────────────────────────────────────────────────────────
 
 export default function Page() {
@@ -188,6 +455,7 @@ export default function Page() {
   const { signMessageAsync } = useSignMessage();
   const { writeContractAsync } = useWriteContract();
 
+  const [mode, setMode] = useState<Mode>('landing');
   const [step, setStep]           = useState<AppStep>('idle');
   const [goal, setGoal]           = useState('');
   const [amount, setAmount]       = useState('100');
@@ -199,6 +467,7 @@ export default function Page() {
   const [execution, setExecution] = useState<Execution | null>(null);
   const [monitor, setMonitor] = useState<MonitorSnapshot | null>(null);
   const [error, setError]         = useState('');
+  const selectedPlan = planRes?.plans.find((p) => p.planId === selectedId) ?? null;
 
   const amountNum = Number(amount);
   const amountTooSmall = amountNum > 0 && amountNum < 10;
@@ -270,6 +539,16 @@ export default function Page() {
     }
   }
 
+  function resetIntent() {
+    setStep('idle');
+    setPlanRes(null);
+    setSelectedId(null);
+    setExecution(null);
+    setMonitor(null);
+    setIntentId('');
+    setError('');
+  }
+
   async function handleSubmit() {
     await submitIntent();
   }
@@ -283,29 +562,34 @@ export default function Page() {
   }
 
   async function handleSelect(planId: string) {
-    const plan = planRes?.plans.find((p) => p.planId === planId);
-    if (!plan?.planHash) {
+    setSelectedId(planId);
+    setStep('approval');
+    setError('');
+    setMonitor(null);
+  }
+
+  async function handleAuthorizeSelectedPlan() {
+    if (!selectedPlan?.planHash || !address) {
       setError('Missing plan hash for execution.');
       return;
     }
 
-    setSelectedId(planId);
     setStep('executing');
     setError('');
     setMonitor(null);
 
     try {
       const permit2Signature = await signMessageAsync({
-        message: buildExecutionMessage(intentId, planId, plan.planHash, address ?? ''),
+        message: buildExecutionMessage(intentId, selectedPlan.planId, selectedPlan.planHash, address),
       });
 
-      const res = await fetch(api(`/v1/intents/${intentId}/plans/${planId}/execute`), {
+      const res = await fetch(api(`/v1/intents/${intentId}/plans/${selectedPlan.planId}/execute`), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           permit2Signature,
           userAddress: address,
-          planHash: plan.planHash,
+          planHash: selectedPlan.planHash,
         }),
       });
       if (!res.ok) throw new Error('Execution failed to start.');
@@ -323,7 +607,7 @@ export default function Page() {
         intentId,
         userAddress: address as `0x${string}`,
         deadline,
-        planHash: plan.planHash as `0x${string}`,
+        planHash: selectedPlan.planHash as `0x${string}`,
       });
       const onchainSignature = await signMessageAsync({
         message: { raw: onchainDigest },
@@ -333,10 +617,10 @@ export default function Page() {
         executorAddress: executorAddress as `0x${string}`,
         registryAddress: registryAddress as `0x${string}`,
         intentId,
-        planId,
+        planId: selectedPlan.planId,
         userAddress: address as `0x${string}`,
-        plan,
-        planHash: plan.planHash as `0x${string}`,
+        plan: selectedPlan,
+        planHash: selectedPlan.planHash as `0x${string}`,
         signature: onchainSignature as `0x${string}`,
         deadline: BigInt(deadline),
       });
@@ -366,80 +650,119 @@ export default function Page() {
       setStep('done');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Execution failed.');
-      setStep('strategies');
+      setStep('approval');
     }
   }
 
   const isLoading = step === 'planning';
-  const showStrategies = step === 'strategies' || step === 'executing' || step === 'done';
-  const showExecution = step === 'executing' || step === 'done';
+  const showStrategies = step === 'strategies';
+  const showApproval = step === 'approval' || step === 'executing' || step === 'done';
+
+  if (mode === 'landing') return <LandingView onSelect={setMode} />;
+  if (mode === 'agent')   return <AgentView onBack={() => setMode('landing')} />;
 
   return (
     <div className="shell">
 
       {/* ── header ── */}
       <header className="header">
-        <div className="header-logo">◈ <span>uni</span>agent</div>
+        <button
+          onClick={() => setMode('landing')}
+          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <div className="header-logo">◈ <span>uni</span>agent</div>
+        </button>
         <WalletButton />
       </header>
 
-      {/* ── screen 1: intent input (always visible) ── */}
+      {/* ── screen 1: intent input / summary ── */}
       <div className="intent-box">
-        <textarea
-          className="intent-textarea"
-          rows={2}
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
-          placeholder="What do you want to do? e.g. Earn yield on my USDC with low risk"
-          disabled={isLoading}
-        />
-
-        <div className="form-row">
-          <div>
-            <label className="field-label">Amount (USDC)</label>
-            <input
-              className="field-input"
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              inputMode="decimal"
-              placeholder="100"
+        {step === 'idle' || step === 'planning' ? (
+          <>
+            <textarea
+              className="intent-textarea"
+              rows={2}
+              value={goal}
+              onChange={(e) => setGoal(e.target.value)}
+              placeholder="What do you want to do? e.g. Earn yield on my USDC with low risk"
               disabled={isLoading}
             />
-            {amountTooSmall && <div className="field-error">Minimum 10 USDC</div>}
-          </div>
-          <div>
-            <label className="field-label">Risk</label>
-            <div className="risk-group">
-              {(['low', 'medium', 'high'] as const).map((r) => (
-                <button
-                  key={r}
-                  className={`risk-btn${risk === r ? ' active' : ''}`}
-                  onClick={() => setRisk(r)}
+
+            <div className="form-row">
+              <div>
+                <label className="field-label">Amount (USDC)</label>
+                <input
+                  className="field-input"
+                  value={amount}
+                  onChange={(e) => setAmount(e.target.value)}
+                  inputMode="decimal"
+                  placeholder="100"
                   disabled={isLoading}
-                >
-                  {r === 'low' ? 'Safe' : r === 'medium' ? 'Balanced' : 'Bold'}
-                </button>
-              ))}
+                />
+                {amountTooSmall && <div className="field-error">Minimum 10 USDC</div>}
+              </div>
+              <div>
+                <label className="field-label">Risk</label>
+                <div className="risk-group">
+                  {(['low', 'medium', 'high'] as const).map((r) => (
+                    <button
+                      key={r}
+                      className={`risk-btn${risk === r ? ' active' : ''}`}
+                      onClick={() => setRisk(r)}
+                      disabled={isLoading}
+                    >
+                      {r === 'low' ? 'Safe' : r === 'medium' ? 'Balanced' : 'Bold'}
+                    </button>
+                  ))}
+                </div>
+              </div>
             </div>
+
+            <button
+              className="btn-primary"
+              disabled={isLoading || amountTooSmall || !address}
+              onClick={handleSubmit}
+            >
+              {!address
+                ? 'Connect wallet to continue'
+                : isLoading
+                ? <>Finding strategies <span className="loading-dots" style={{ display: 'inline-flex', gap: 3, marginLeft: 6 }}><span/><span/><span/></span></>
+                : 'Find strategies →'}
+            </button>
+
+            {!address && (
+              <p style={{ fontSize: 12, color: 'var(--text-faint)', textAlign: 'center', marginTop: 10 }}>
+                Connect your wallet above to get started
+              </p>
+            )}
+          </>
+        ) : (
+          <div style={{
+            border: '1px solid var(--border)',
+            borderRadius: 16,
+            padding: 16,
+            background: 'var(--surface-soft)',
+          }}>
+            <div className="section-label" style={{ margin: 0 }}>Intent summary</div>
+            <div style={{ display: 'grid', gap: 8, marginTop: 10, fontSize: 14 }}>
+              <div><strong>Goal:</strong> {goal}</div>
+              <div><strong>Amount:</strong> {amount} USDC</div>
+              <div><strong>Risk:</strong> {RISK_LABEL[risk]}</div>
+            </div>
+            <div style={{ marginTop: 12, fontSize: 12, color: 'var(--text-faint)' }}>
+              You are authorizing an exact execution plan for this intent. The strategy cards below disappear once you choose one.
+            </div>
+            {selectedPlan && (
+              <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text-faint)' }}>
+                After signing, the app will track the swap and position steps as the AI recommended them.
+              </div>
+            )}
+            {step !== 'done' && (
+              <button className="btn-ghost" style={{ width: '100%', marginTop: 12 }} onClick={resetIntent}>
+                ← Change my request
+              </button>
+            )}
           </div>
-        </div>
-
-        <button
-          className="btn-primary"
-          disabled={isLoading || amountTooSmall || !address}
-          onClick={handleSubmit}
-        >
-          {!address
-            ? 'Connect wallet to continue'
-            : isLoading
-            ? <>Finding strategies <span className="loading-dots" style={{ display: 'inline-flex', gap: 3, marginLeft: 6 }}><span/><span/><span/></span></>
-            : 'Find strategies →'}
-        </button>
-
-        {!address && (
-          <p style={{ fontSize: 12, color: 'var(--text-faint)', textAlign: 'center', marginTop: 10 }}>
-            Connect your wallet above to get started
-          </p>
         )}
 
         {error && <div className="error-box">{error}</div>}
@@ -465,13 +788,12 @@ export default function Page() {
               const apy = (plan.estimatedNetApyBps / 100).toFixed(1);
               const isSelected = selectedId === plan.planId;
               const isRecommended = plan.planId === planRes.recommendedPlanId || meta.recommended;
-              const isExecuting = step === 'executing' || step === 'done';
 
               return (
                 <div
                   key={plan.planId}
                   className={`strategy-card${isSelected ? ' selected' : ''}`}
-                  onClick={() => !isExecuting && handleSelect(plan.planId)}
+                  onClick={() => handleSelect(plan.planId)}
                 >
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
@@ -515,11 +837,9 @@ export default function Page() {
                     <span className={`strategy-badge ${RISK_BADGE[plan.riskScore]}`}>
                       {RISK_LABEL[plan.riskScore]}
                     </span>
-                    {!isExecuting && (
-                      <button className="strategy-select-btn">
-                        {isSelected ? '✓ Selected' : 'Select'}
-                      </button>
-                    )}
+                    <button className="strategy-select-btn">
+                      {isSelected ? '✓ Selected' : 'Select'}
+                    </button>
                   </div>
                 </div>
               );
@@ -527,26 +847,90 @@ export default function Page() {
           </div>
 
           {step === 'strategies' && (
-            <button className="btn-ghost" style={{ width: '100%' }} onClick={() => { setStep('idle'); setPlanRes(null); }}>
+            <button className="btn-ghost" style={{ width: '100%' }} onClick={resetIntent}>
               ← Change my request
             </button>
           )}
         </>
       )}
 
-      {/* ── screen 3: execution (continues inline) ── */}
-      {showExecution && (
+      {/* ── screen 3: approval / execution ── */}
+      {showApproval && selectedPlan && (
         <div className="exec-box" style={{ marginTop: 16 }}>
             <div className="exec-title">
-            {step === 'done' ? 'Position opened ✓' : 'Opening your position…'}
+            {step === 'done' ? 'Position opened ✓' : step === 'approval' ? 'Review and authorize exact plan' : 'Opening your position…'}
           </div>
           <div className="exec-subtitle">
           {step === 'done'
               ? 'Your funds are now earning yield.'
-              : 'Confirm the execution signature and onchain steps in your wallet.'}
+              : step === 'approval'
+                ? 'Review the exact strategy, then sign to authorize execution and tracking.'
+                : 'Confirm the execution signature and onchain steps in your wallet.'}
           </div>
 
-          {selectedId && (
+          <div style={{
+            marginBottom: 12,
+            padding: '12px 14px',
+            border: '1px solid var(--border)',
+            borderRadius: 16,
+            background: 'var(--surface-soft)',
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 8 }}>
+              <div>
+                <div className="strategy-name" style={{ marginBottom: 3 }}>{STRATEGY_META[selectedPlan.strategy]?.name ?? selectedPlan.label}</div>
+                <div className="strategy-desc">{STRATEGY_META[selectedPlan.strategy]?.desc ?? ''}</div>
+              </div>
+              <span className={`strategy-badge ${RISK_BADGE[selectedPlan.riskScore]}`}>
+                {RISK_LABEL[selectedPlan.riskScore]}
+              </span>
+            </div>
+            <div style={{ display: 'grid', gap: 6, fontSize: 14, marginBottom: 10 }}>
+              <div><strong>Intent amount:</strong> {amount} USDC</div>
+              <div><strong>Risk:</strong> {RISK_LABEL[risk]}</div>
+              <div><strong>Plan:</strong> {selectedPlan.label}</div>
+            </div>
+            <div style={{
+              padding: '8px 10px',
+              border: '1px solid var(--border)',
+              borderRadius: 12,
+              background: 'var(--surface)',
+              fontFamily: 'var(--mono)',
+              fontSize: 11,
+              color: 'var(--text-faint)',
+              wordBreak: 'break-all',
+            }}>
+              planHash: {selectedPlan.planHash}
+            </div>
+            <div style={{ display: 'grid', gap: 8, marginTop: 12 }}>
+              {selectedPlan.steps.map((stepItem, index) => (
+                <div key={stepItem.stepId} style={{
+                  padding: '8px 10px',
+                  borderRadius: 12,
+                  border: '1px solid var(--border)',
+                  background: index === 0 ? 'rgba(249, 115, 22, 0.06)' : 'var(--surface)',
+                  fontSize: 13,
+                }}>
+                  <strong>{index + 1}.</strong> {stepItem.type === 'swap' ? 'Swap' : 'Add liquidity'}{' '}
+                  {stepItem.type === 'swap'
+                    ? `${fmt(stepItem.amountIn ?? '0', 6)} USDC → ${fmt(stepItem.estimatedAmountOut ?? '0', 18)} WETH`
+                    : `${fmt(stepItem.token0AmountIn ?? '0', 6)} USDC + ${fmt(stepItem.token1AmountIn ?? '0', 18)} WETH`}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {step === 'approval' && (
+            <div style={{ display: 'grid', gap: 10 }}>
+              <button className="btn-primary" onClick={handleAuthorizeSelectedPlan}>
+                Authorize exact plan
+              </button>
+              <button className="btn-ghost" onClick={() => setStep('strategies')}>
+                Back to strategies
+              </button>
+            </div>
+          )}
+
+          {selectedId && step !== 'approval' && (
             <div style={{
               marginBottom: 12,
               padding: '8px 10px',
@@ -557,12 +941,12 @@ export default function Page() {
               fontSize: 11,
               color: 'var(--text-faint)',
               wordBreak: 'break-all',
-            }}>
+              }}>
               selected plan: {selectedId}
-              {planRes?.plans.find((p) => p.planId === selectedId)?.planHash ? (
+              {selectedPlan?.planHash ? (
                 <>
                   <br />
-                  planHash: {planRes.plans.find((p) => p.planId === selectedId)?.planHash}
+                  planHash: {selectedPlan.planHash}
                 </>
               ) : null}
             </div>
@@ -593,7 +977,7 @@ export default function Page() {
             </div>
           ) : (
             <div style={{ padding: '12px 0', color: 'var(--text-faint)', fontSize: 13 }}>
-              Waiting for confirmation…
+              {step === 'approval' ? 'Waiting for authorization…' : 'Waiting for confirmation…'}
             </div>
           )}
         </div>
@@ -643,7 +1027,7 @@ export default function Page() {
           <button
             className="btn-ghost"
             style={{ width: '100%' }}
-            onClick={() => { setStep('idle'); setPlanRes(null); setExecution(null); setGoal(''); }}
+            onClick={resetIntent}
           >
             + New position
           </button>

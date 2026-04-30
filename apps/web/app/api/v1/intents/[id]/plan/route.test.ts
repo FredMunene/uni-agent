@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import type { Plan } from '@uni-agent/shared';
-import { computePlanHash } from './route';
+import { computePlanHash } from '../../../../../../lib/services/planHash';
 
 function makePlan(overrides: Partial<Plan> = {}): Plan {
   return {

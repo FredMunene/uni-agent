@@ -5,9 +5,9 @@ import { privateKeyToAccount } from 'viem/accounts';
 import {
   assertExecutionAuthorized,
   buildExecutionAuthorizationMessage,
-  startExecution,
-} from './route';
-import { computePlanHash } from '../../../plan/route';
+} from '../../../../../../../../lib/services/executionAuth';
+import { computePlanHash } from '../../../../../../../../lib/services/planHash';
+import { startExecution } from '../../../../../../../../lib/services/executionFlow';
 
 function makeIntent(overrides: Partial<Intent> = {}): Intent {
   return {

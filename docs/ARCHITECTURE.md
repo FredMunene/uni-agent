@@ -381,30 +381,104 @@ POST   /api/v1/solvers/register                Register external solver
 
 ```solidity
 // Registration
-function registerSolver(address feeRecipient, string calldata name, string calldata endpoint)
-  external payable;  // 0.05 ETH stake required
+function registerSolver(
+  address feeRecipient,
+  string calldata name,
+  string calldata ensName,   // e.g. "gemini-lp.solvers.uni-agent.eth"
+  bytes4 builderCode,        // 4-byte attribution code embedded in execution calldata
+  string calldata endpoint
+) external payable;          // 0.05 ETH stake required
 
-function withdrawSolver() external;  // 24hr timelock
+function requestWithdrawal() external;   // starts 24hr timelock
+function claimWithdrawal()   external;   // claim after delay
 
 // Per-intent
-function createIntent(bytes32 intentId, address asset, uint256 amount, uint8 risk)
+function createIntent(bytes32 intentId, address user, address asset, uint256 amount, uint8 risk)
   external;
 
-function submitStrategy(bytes32 intentId, bytes calldata plan, uint256 validUntil)
-  external payable;  // 0.001 ETH bid bond
+function submitStrategy(bytes32 intentId, bytes32 planHash, uint256 validUntil)
+  external payable returns (bytes32 strategyId);  // 0.001 ETH bid bond
 
 function selectStrategy(bytes32 intentId, bytes32 strategyId)
-  external;  // called by user at execution — triggers fee settlement
+  external;  // called by user — locks in chosen strategy
 
-function fulfillIntent(bytes32 intentId)
-  external;  // called after txs confirmed — releases fee to solver
+function fulfillIntent(bytes32 intentId, bytes4 builderCode)
+  external payable;  // protocol calls after txs confirmed — routes fee via builder code
+
+function refundBidBond(bytes32 strategyId)
+  external;  // losing solvers reclaim bond after strategy expires
+
+// Reputation (see ADR-001)
+function reportOutcome(
+  bytes32 intentId,
+  uint256 actualFeesBps,   // actual APR earned, read from PositionManager
+  uint256 inRangeBps       // % of time position was in range (0–10000)
+) external;                // owner/oracle only
+
+// Admin
+function slashSolver(address solver, string calldata reason) external;
+function setTreasury(address treasury) external;
 
 // Events
-event IntentCreated(bytes32 indexed intentId, address indexed caller, address asset, uint256 amount);
-event StrategySubmitted(bytes32 indexed intentId, bytes32 strategyId, address indexed solver);
-event IntentFulfilled(bytes32 indexed intentId, address indexed solver, uint256 fee);
+event SolverRegistered(address indexed solver, string name, string ensName, bytes4 builderCode);
+event IntentCreated(bytes32 indexed intentId, address indexed user, address asset, uint256 amount);
+event StrategySubmitted(bytes32 indexed intentId, bytes32 indexed strategyId, address indexed solver);
+event StrategySelected(bytes32 indexed intentId, bytes32 indexed strategyId, address indexed solver);
+event IntentFulfilled(bytes32 indexed intentId, bytes32 indexed strategyId, address indexed solver, uint256 fee);
+event OutcomeReported(bytes32 indexed intentId, address indexed solver, uint256 outcomeScore);
 event SolverSlashed(address indexed solver, uint256 amount, string reason);
 ```
+
+---
+
+## Solver Reputation (ADR-001)
+
+Quoting a high APR wins more user selections but earns a bad reputation score if the
+position under-delivers. This mechanism turns reputation into the primary quality signal
+over time. See [docs/adr/001-solver-reputation-and-outcome-reporting.md](adr/001-solver-reputation-and-outcome-reporting.md).
+
+### Score formula
+
+After each fulfilled intent is 7 days old, the protocol reads actual performance and reports:
+
+```
+aprAccuracyBps = min((actualFeesBps × 10000) / quotedFeesBps, 10000)
+outcomeScore   = (aprAccuracyBps × inRangeBps) / 10000
+newAvgScore    = (oldAvg × fulfilledCount + outcomeScore) / (fulfilledCount + 1)
+```
+
+### What users see on a strategy card
+
+```
+Solver:        gemini-lp.solvers.uni-agent.eth
+Track record:  247 fulfilled · 0 slashed
+APR accuracy:  94%    (promised vs delivered, 7-day window)
+In-range:      87%    (time position was earning fees)
+Score:         81%    ●●●●○  (combined; ≥80% green, 50–79% amber, <50% red)
+```
+
+### Reputation struct (per solver)
+
+```solidity
+struct Reputation {
+  uint256 fulfilledCount;   // total completed intents
+  uint256 avgOutcomeScore;  // 0–10000 bps running mean
+  uint256 avgAprAccuracy;   // 0–10000 bps running mean
+  uint256 avgInRangeBps;    // 0–10000 bps running mean
+  uint256 slashedAmount;    // total ETH slashed (0 = clean)
+  uint256 lastReportedAt;   // timestamp of most recent report
+}
+```
+
+### Trust hierarchy
+
+| Signal | Available | On-chain |
+|---|---|---|
+| Fulfilled count | Immediately after execution | Yes |
+| Slash history | Immediately after slash | Yes |
+| APR accuracy | 7 days after execution | Yes (via oracle) |
+| In-range ratio | Continuously via monitor | Yes (via oracle) |
+| ZK position proof | v1 roadmap | Planned |
 
 ---
 

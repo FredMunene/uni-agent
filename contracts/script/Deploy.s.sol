@@ -51,8 +51,8 @@ contract Deploy is Script {
 
         // 7. Register built-in Gemini solver in IntentRegistry
         //    builderCode 0xDEAD1234, ENS name gemini-lp.solvers.uni-agent.eth
-        //    Requires 0.05 ETH — deployer must have sufficient balance
-        intentRegistry.registerSolver{value: 0.05 ether}(
+        uint256 stake = intentRegistry.registrationStake();
+        intentRegistry.registerSolver{value: stake}(
             deployer,                              // feeRecipient
             "Gemini-LP-v1",                        // name
             "gemini-lp.solvers.uni-agent.eth",     // ensName

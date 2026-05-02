@@ -2,6 +2,7 @@
 .env
 .env.local
 .env.*.local
+apps/web/.env
 
 # dependencies
 node_modules/
@@ -32,3 +33,10 @@ npm-debug.log*
 # test artifacts
 coverage/
 lcov.info
+
+
+
+
+docs/ideation/*
+memory/*
+.vercel

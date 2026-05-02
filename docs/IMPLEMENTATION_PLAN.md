@@ -1,20 +1,20 @@
 # Implementation Plan
 
-Hackathon ends: May 6, 2026. Today: April 30.
-**6 days remaining.**
+Hackathon ends: May 6, 2026. Today: May 2.
+**4 days remaining.**
 
 ---
 
 ## Progress Overview
 
 ```
-Protocol layer     ████████████░░░░  75%   API, types, plan hash, execution auth
-Solver layer       ████████░░░░░░░░  50%   Gemini 3-strategy loop, APR, bid meta
-Agent identity     ████░░░░░░░░░░░░  25%   Designed, in contract, not wired to TS
-Smart contract     ██████████████░░  90%   Full contract + 50 tests — needs deploy
-On-chain exec      ████░░░░░░░░░░░░  25%   Calldata builders exist, txs not live
-Frontend           █████████████░░░  80%   Landing, risk-matched strategies, approval flow
-Demo readiness     ████████░░░░░░░░  50%   Flow works, needs real txs + video
+Protocol layer     ████████████████  100%  API, types, plan hash, execution auth, on-chain intent
+Solver layer       ████████░░░░░░░░   50%  Gemini 3-strategy loop, APR, bid meta
+Agent identity     ████░░░░░░░░░░░░   25%  In contract + deploy, TS types not wired
+Smart contract     ████████████████  100%  Deployed Base Sepolia, 50 tests passing
+On-chain exec      ████████░░░░░░░░   50%  Real Base Sepolia executor tx exists, but still no real Uniswap swap/mint
+Frontend           █████████████░░░   80%  Landing, strategies, approval — not yet verified end-to-end on live testnet
+Demo readiness     ██████░░░░░░░░░░   40%  Honest partial demo possible, final LP demo still blocked by Phase 3
 ```
 
 ---
@@ -100,25 +100,26 @@ for immutable on-chain attribution and automatic fee routing.
 
 ---
 
-## Phase 2 — Solver Registration + Bid Bond ✅ Contract done, needs deploy
-
-Goal: Deploy IntentRegistry to Base Sepolia and wire TypeScript services to it.
+## Phase 2 — Solver Registration + Bid Bond ✅ Complete
 
 - [x] `contracts/src/IntentRegistry.sol` — full contract written and tested
-- [ ] **Deploy to Base Sepolia** — fund deployer `0x8bD204E42a3Ae3B62ea7Da8a9b4e607C2f3Dbb56` with ~0.005 ETH, run `forge script script/Deploy.s.sol --rpc-url $RPC_BASE_SEPOLIA --broadcast --verify`
-- [ ] `lib/services/registry.ts` — viem calls to `createIntent` and `fulfillIntent`
-- [ ] `app/api/v1/solvers/register/route.ts` — register external solver endpoint
-- [ ] Update `SolverMeta` type with `bidBondWei` + `validUntil`
-- [ ] Set `NEXT_PUBLIC_INTENT_REGISTRY_ADDRESS` in `.env` after deploy
-
-Milestone: Intent submitted via UI emits `IntentCreated` on-chain. Solver registration visible on Basescan.
+- [x] Deployed to Base Sepolia: `0x1c105A184aA887b6b5E518CF57867b2b47a110F9`
+- [x] `lib/services/registry.ts` — server-side `createIntentOnChain` via viem wallet client
+- [x] `app/api/v1/intents/route.ts` — fires `createIntentOnChain` on every new intent
+- [x] Contract addresses set in `.env`
+- [ ] `app/api/v1/solvers/register/route.ts` — external solver registration endpoint (post-hackathon)
 
 ---
 
 ## Phase 3 — Real On-chain Execution
 **Target: May 1–2 | ~2 days**
 
-Goal: Replace simulation with real txs. User signs in wallet. Solver fee settled on-chain.
+Goal: Replace the current position-recording tx with full Uniswap execution. User signs in wallet. Solver fee settled on-chain.
+
+Current state:
+- [x] User signs a real Base Sepolia executor tx
+- [x] Executor records predicted position metadata on-chain via `PositionRegistry.recordPosition`
+- [ ] This is not yet a real Uniswap swap or v4 liquidity mint
 
 - [ ] `lib/services/permit2.ts` — Permit2 USDC approval calldata
 - [ ] `lib/services/execute.ts` — Universal Router swap calldata + v4 PositionManager addLiquidity calldata
@@ -250,14 +251,14 @@ Hardening targets for v0.1:
 
 ## Remaining For v0
 
-Critical path to demo (in order):
+Critical path to honest final demo (in order):
 
-1. **Deploy contracts** — fund deployer, run `forge script`, get contract addresses
-2. **Wire `registry.ts`** — `createIntent` + `fulfillIntent` viem calls
-3. **Phase 3 real txs** — Permit2 → swap → addLiquidity in wallet
+1. **Complete Phase 3** — replace `PositionRegistry.recordPosition` with Permit2 → swap → addLiquidity
+2. **Wire registry settlement** — `selectStrategy` / `fulfillIntent` on the live path
+3. **Run full Base Sepolia flow end to end** — connect → intent → pick → sign → monitor → rebalance
 4. **Deploy to Vercel** — set env vars, smoke test
 5. **Record demo video**
 
 Known limitation:
 
-- the current monitor is registry-snapshot based for v0; the full Uniswap tick-range oracle is tracked in [docs/issues/001-monitor-tick-range-oracle.md](/home/fred/Downloads/hackathons/uni-agent/docs/issues/001-monitor-tick-range-oracle.md)
+- the current monitor can use live v3 tick input when configured, but it still reasons over predicted/stored LP metadata rather than a final v4 minted position; the full Uniswap tick-range oracle is tracked in [docs/issues/001-monitor-tick-range-oracle.md](/home/fred/Downloads/hackathons/uni-agent/docs/issues/001-monitor-tick-range-oracle.md)

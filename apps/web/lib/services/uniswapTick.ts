@@ -33,7 +33,7 @@ export function createBaseMainnetClient(): PublicClient {
   return createPublicClient({
     chain: base,
     transport: http(process.env.RPC_BASE_MAINNET ?? 'https://mainnet.base.org'),
-  });
+  }) as unknown as PublicClient;
 }
 
 export async function readCurrentUniswapV3Tick(client: PublicClient, poolAddress: Address): Promise<number> {

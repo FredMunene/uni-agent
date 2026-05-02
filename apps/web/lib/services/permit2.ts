@@ -29,11 +29,11 @@ export function buildPermit2Approval(input: {
     address: BASE_SEPOLIA.PERMIT2 as Address,
     abi: permit2Abi,
     functionName: 'approve' as const,
-    args: [token, input.spender, input.amount, expiration] as const,
+    args: [token, input.spender, input.amount, Number(expiration)] as const,
     data: encodeFunctionData({
       abi: permit2Abi,
       functionName: 'approve',
-      args: [token, input.spender, input.amount, expiration],
+      args: [token, input.spender, input.amount, Number(expiration)],
     }),
   };
 }

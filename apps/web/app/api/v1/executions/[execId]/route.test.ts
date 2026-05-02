@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { simulatedExecution } from './route';
+import { simulatedExecution } from '@/lib/simulatedExecution';
 
 test('simulatedExecution exposes stored range metadata once execution completes', () => {
   const result = simulatedExecution({
@@ -38,8 +38,9 @@ test('simulatedExecution exposes stored range metadata once execution completes'
     },
   } as any);
 
-  assert.equal(result.status, 'completed');
-  assert.equal(result.position?.tickLower, -1200);
-  assert.equal(result.position?.tickUpper, 800);
-  assert.equal(result.position?.currentTick, -200);
+  const r = result as Record<string, unknown> & { position?: Record<string, unknown> };
+  assert.equal(r.status, 'completed');
+  assert.equal(r.position?.tickLower, -1200);
+  assert.equal(r.position?.tickUpper, 800);
+  assert.equal(r.position?.currentTick, -200);
 });

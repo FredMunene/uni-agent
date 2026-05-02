@@ -6,7 +6,7 @@ import { mainnet, base } from 'wagmi/chains';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { ACTIVE_MARKET } from '@/lib/markets';
 import { buildDefaultGoal, marketAmountLabel, marketIntentPlaceholder, marketPoolLabel } from '@/lib/marketPresentation';
-import { buildExecutionDigest, buildExecutorExecution } from '@/lib/onchain';
+import { buildExecutionDigest, buildExecutionSteps, buildExecutorExecution } from '@/lib/onchain';
 import type { MonitorSnapshot } from '@/lib/services/monitor';
 import { derivePositionRangeFromPlan, formatPositionRange } from '@/lib/services/positionRange';
 import { deriveRebalanceIntentDraft } from '@/lib/services/rebalance';
@@ -613,18 +613,28 @@ export default function Page() {
       const { executionId } = await res.json() as { executionId: string };
 
       const executorAddress = process.env.NEXT_PUBLIC_INTENT_EXECUTOR_ADDRESS;
-      const registryAddress = process.env.NEXT_PUBLIC_POSITION_REGISTRY_ADDRESS;
-      if (!executorAddress || !registryAddress) {
+      const positionRegistryAddress = process.env.NEXT_PUBLIC_POSITION_REGISTRY_ADDRESS;
+      if (!executorAddress || !positionRegistryAddress) {
         throw new Error('Onchain execution is not configured.');
       }
 
       const deadline = Math.floor(Date.now() / 1000) + 900;
+
+      // Build steps first — on-chain planHash = keccak256(abi.encode(steps))
+      const { steps, onchainPlanHash, positionId, position } = buildExecutionSteps({
+        userAddress: address as `0x${string}`,
+        intentId,
+        planId: selectedPlan.planId,
+        plan: selectedPlan,
+        positionRegistryAddress: positionRegistryAddress as `0x${string}`,
+      });
+
       const onchainDigest = buildExecutionDigest({
         executorAddress: executorAddress as `0x${string}`,
         intentId,
         userAddress: address as `0x${string}`,
         deadline,
-        planHash: selectedPlan.planHash as `0x${string}`,
+        planHash: onchainPlanHash,
       });
       const onchainSignature = await signMessageAsync({
         message: { raw: onchainDigest },
@@ -632,14 +642,14 @@ export default function Page() {
 
       const txConfig = buildExecutorExecution({
         executorAddress: executorAddress as `0x${string}`,
-        registryAddress: registryAddress as `0x${string}`,
         intentId,
-        planId: selectedPlan.planId,
-        userAddress: address as `0x${string}`,
-        plan: selectedPlan,
-        planHash: selectedPlan.planHash as `0x${string}`,
-        signature: onchainSignature as `0x${string}`,
-        deadline: BigInt(deadline),
+        userAddress:     address as `0x${string}`,
+        onchainPlanHash,
+        signature:       onchainSignature as `0x${string}`,
+        deadline:        BigInt(deadline),
+        steps,
+        positionId,
+        position,
       });
 
       const txHash = await writeContractAsync(txConfig);

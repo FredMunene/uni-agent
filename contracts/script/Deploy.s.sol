@@ -47,6 +47,7 @@ contract Deploy is Script {
         // 6. Allowlist Uniswap contracts + lending adapter in executor
         executor.setAllowedTarget(UNIVERSAL_ROUTER, true);
         executor.setAllowedTarget(V4_POSITION_MANAGER, true);
+        executor.setAllowedTarget(address(posRegistry), true);
         executor.setAllowedTarget(address(lending), true);
 
         // 7. Register built-in Gemini solver in IntentRegistry

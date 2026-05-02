@@ -1,14 +1,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { BASE_SEPOLIA, type Plan } from '@uni-agent/shared';
+import { decodeFunctionData } from 'viem';
 import {
   buildExecutionDigest,
   buildExecutionSteps,
   buildExecutorExecution,
   buildPlanIntentBytes32,
+  positionRegistryAbi,
 } from './onchain';
 
-const MOCK_LENDING_ADAPTER = '0x8F3D8715cdbcfFb745aF587ce9a90c702F479144' as const;
+const POSITION_REGISTRY = '0x4d362FC9D4Ac955dd11a359a188Ed90d3132d07b' as const;
 
 const PLAN: Plan = {
   planId: 'plan_123',
@@ -52,32 +54,38 @@ test('buildExecutionDigest changes when the plan hash changes', () => {
   assert.notEqual(digestA, digestB);
 });
 
-test('buildExecutionSteps returns steps targeting MockLendingAdapter and a deterministic positionId', () => {
+test('buildExecutionSteps returns PositionRegistry steps and a deterministic positionId', () => {
   const { steps, onchainPlanHash, positionId, position } = buildExecutionSteps({
-    userAddress:               '0x2222222222222222222222222222222222222222',
-    intentId:                  'int_123',
-    planId:                    'plan_123',
-    plan:                      PLAN,
-    mockLendingAdapterAddress: MOCK_LENDING_ADAPTER,
+    userAddress: '0x2222222222222222222222222222222222222222',
+    intentId: 'int_123',
+    planId: 'plan_123',
+    plan: PLAN,
+    positionRegistryAddress: POSITION_REGISTRY,
   });
 
   assert.equal(steps.length, 1);
-  assert.equal(steps[0].target, MOCK_LENDING_ADAPTER);
+  assert.equal(steps[0].target, POSITION_REGISTRY);
   assert.ok(onchainPlanHash.startsWith('0x'));
   assert.ok(positionId.startsWith('0x'));
   assert.equal(position.token0, BASE_SEPOLIA.USDC);
   assert.equal(position.token1, BASE_SEPOLIA.WETH);
   assert.equal(position.amount0, 5000000n);
   assert.equal(position.amount1, 1000000000000000n);
+
+  const decoded = decodeFunctionData({
+    abi: positionRegistryAbi,
+    data: steps[0].callData,
+  });
+  assert.equal(decoded.functionName, 'recordPosition');
 });
 
 test('buildExecutorExecution encodes a valid execute() call', () => {
   const { steps, onchainPlanHash, positionId, position } = buildExecutionSteps({
-    userAddress:               '0x2222222222222222222222222222222222222222',
-    intentId:                  'int_123',
-    planId:                    'plan_123',
-    plan:                      PLAN,
-    mockLendingAdapterAddress: MOCK_LENDING_ADAPTER,
+    userAddress: '0x2222222222222222222222222222222222222222',
+    intentId: 'int_123',
+    planId: 'plan_123',
+    plan: PLAN,
+    positionRegistryAddress: POSITION_REGISTRY,
   });
 
   const tx = buildExecutorExecution({
@@ -95,9 +103,7 @@ test('buildExecutorExecution encodes a valid execute() call', () => {
   assert.equal(tx.address, '0x1111111111111111111111111111111111111111');
   assert.equal(tx.functionName, 'execute');
   assert.equal(tx.args[0].planHash, onchainPlanHash);
-  assert.equal(tx.args[0].steps[0].target, MOCK_LENDING_ADAPTER);
-
-  // callData is the inner borrow() call — just verify it's non-empty bytes
+  assert.equal(tx.args[0].steps[0].target, POSITION_REGISTRY);
   assert.ok(tx.args[0].steps[0].callData.length > 2);
 
   const intentIdBytes32 = buildPlanIntentBytes32('int_123');

@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { buildStoredMonitorFallback, resolveCurrentTick } from './route';
+import { buildStoredMonitorFallback, resolveCurrentTick } from '@/lib/monitorHelpers';
 
 test('buildStoredMonitorFallback derives a range-aware snapshot from stored execution metadata', () => {
   const payload = buildStoredMonitorFallback('0xpos123', {

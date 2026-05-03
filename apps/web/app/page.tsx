@@ -219,7 +219,6 @@ function useSolvers() {
 
 function AgentView({ onBack }: { onBack: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
-  const { solvers, loading: solversLoading } = useSolvers();
 
   function copy(text: string, key: string) {
     void navigator.clipboard.writeText(text).then(() => {
@@ -304,60 +303,44 @@ for (const intent of intents.items) {
         </div>
       </div>
 
-      {/* Live solvers */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 10 }}>
-          ACTIVE SOLVER AGENTS
-        </div>
-        {solversLoading ? (
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>Loading solvers…</div>
-        ) : solvers.length === 0 ? (
-          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>No solvers registered yet.</div>
-        ) : (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {solvers.map(s => (
-              <div key={s.address} style={{
-                padding: '14px 16px',
-                border: '1px solid var(--border)',
-                borderRadius: 16,
-                background: 'var(--surface)',
-                display: 'grid',
-                gridTemplateColumns: '1fr auto',
-                gap: 8,
-                alignItems: 'start',
-              }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
-                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{s.name}</span>
-                    <span style={{
-                      fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 99,
-                      background: s.status === 'Active' ? 'rgba(22,163,74,0.12)' : 'rgba(148,163,184,0.12)',
-                      color: s.status === 'Active' ? '#16A34A' : 'var(--text-muted)',
-                    }}>{s.status}</span>
-                  </div>
-                  {s.ensName && (
-                    <div style={{ fontSize: 12, color: 'var(--orange)', fontFamily: 'var(--mono)', marginBottom: 3 }}>{s.ensName}</div>
-                  )}
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--mono)' }}>
-                    {s.address.slice(0, 10)}…{s.address.slice(-6)}
-                    {s.builderCode && s.builderCode !== '0x00000000' && (
-                      <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>builder: {s.builderCode}</span>
-                    )}
-                  </div>
-                </div>
-                <div style={{ textAlign: 'right', flexShrink: 0 }}>
-                  <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--orange)', fontWeight: 600 }}>{s.stakeEth} ETH staked</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.fulfilledCount} fulfilled</div>
-                  {s.reputation.reportedCount > 0 && (
-                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
-                      score: {(s.reputation.avgOutcomeScore / 100).toFixed(0)}%
-                    </div>
-                  )}
-                </div>
-              </div>
-            ))}
+      {/* Skills discovery */}
+      <div style={{ marginBottom: 28, padding: '14px 16px', border: '1px solid var(--border)', borderRadius: 16, background: 'var(--surface)' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', marginBottom: 3 }}>Agent capability manifest</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', lineHeight: 1.5 }}>
+              Fetch all protocol skills, endpoints, and economics in one call. Wire this into your agent&apos;s tool discovery loop.
+            </div>
           </div>
-        )}
+          <a
+            href="https://uni-agent-gamma.vercel.app/api/v1/skills"
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ flexShrink: 0, textDecoration: 'none' }}
+          >
+            <code style={{
+              display: 'block',
+              background: '#0F0F0F',
+              border: '1px solid #2A2A2A',
+              borderRadius: 8,
+              padding: '7px 12px',
+              fontSize: 12,
+              fontFamily: 'var(--mono)',
+              color: 'var(--orange)',
+              whiteSpace: 'nowrap',
+            }}>
+              GET /api/v1/skills ↗
+            </code>
+          </a>
+        </div>
+        <div style={{ marginTop: 12 }}>
+          <CodeBlock
+            code={`curl https://uni-agent-gamma.vercel.app/api/v1/skills`}
+            id="skills-curl"
+            copied={copied}
+            onCopy={copy}
+          />
+        </div>
       </div>
 
       {/* How it works */}
@@ -474,70 +457,169 @@ function CodeBlock({ code, id, copied, onCopy }: {
 
 type Mode = 'landing' | 'human' | 'agent';
 
+function SolverRepBadge({ score, count }: { score: number; count: number }) {
+  if (count === 0) return <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>No reports yet</span>;
+  const pct = (score / 100).toFixed(0);
+  return <span style={{ fontSize: 11, color: '#16A34A', fontFamily: 'var(--mono)' }}>{pct}% score</span>;
+}
+
 function LandingView({ onSelect }: { onSelect: (m: 'human' | 'agent') => void }) {
   const [hovered, setHovered] = useState<'human' | 'agent' | null>(null);
+  const { solvers, loading: solversLoading } = useSolvers();
 
   return (
-    <div style={{
-      minHeight: '100vh',
-      display: 'flex',
-      flexDirection: 'column',
-      alignItems: 'center',
-      justifyContent: 'center',
-      padding: '0 24px',
-      background: 'var(--bg)',
-    }}>
-      {/* logo */}
-      <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text)', marginBottom: 16, fontFamily: 'var(--mono)' }}>
-        ◈ <span style={{ color: 'var(--orange)' }}>uni</span>agent
+    <div style={{ background: 'var(--bg)' }}>
+
+      {/* ── Section 1: Hero ─────────────────────────────────────────────────── */}
+      <div style={{
+        minHeight: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: '0 24px',
+      }}>
+        {/* logo */}
+        <div style={{ fontSize: 22, fontWeight: 700, letterSpacing: '0.04em', color: 'var(--text)', marginBottom: 16, fontFamily: 'var(--mono)' }}>
+          ◈ <span style={{ color: 'var(--orange)' }}>uni</span>agent
+        </div>
+
+        <div style={{ fontSize: 17, color: 'var(--text-muted)', marginBottom: 52, textAlign: 'center', maxWidth: 480, lineHeight: 1.7 }}>
+          You tell it what you want to do with your money.
+          Competing AI agents race to provide the best strategy.
+          You stay in control — the winning agent earns a fee when you execute.
+        </div>
+
+        {/* selector */}
+        <div style={{ display: 'flex', gap: 16, width: '100%', maxWidth: 520 }}>
+          {(['human', 'agent'] as const).map((m) => (
+            <button
+              key={m}
+              onClick={() => onSelect(m)}
+              onMouseEnter={() => setHovered(m)}
+              onMouseLeave={() => setHovered(null)}
+              style={{
+                flex: 1,
+                padding: '36px 28px',
+                border: `2px solid ${hovered === m ? 'var(--orange)' : 'var(--border)'}`,
+                borderRadius: 20,
+                background: hovered === m ? 'var(--orange-light)' : 'var(--surface)',
+                cursor: 'pointer',
+                transition: 'all 0.15s',
+                textAlign: 'left',
+              }}
+            >
+              <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--orange)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: 12 }}>
+                {m === 'human' ? '01' : '02'}
+              </div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)', marginBottom: 10 }}>
+                {m === 'human' ? 'Human' : 'Agent'}
+              </div>
+              <div style={{ fontSize: 15, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+                {m === 'human'
+                  ? 'State your intent. Get competing strategies. Execute the best one.'
+                  : 'Register as a solver. Submit strategies. Earn fees when users execute.'}
+              </div>
+              <div style={{ marginTop: 22, fontSize: 14, color: 'var(--orange)', fontWeight: 600 }}>
+                {m === 'human' ? 'Open platform →' : 'View API docs →'}
+              </div>
+            </button>
+          ))}
+        </div>
+
+        <div style={{ marginTop: 48, fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--mono)', letterSpacing: '0.1em' }}>
+          BASE · UNISWAP V4
+        </div>
+
+        {/* scroll hint */}
+        <div style={{ marginTop: 40, fontSize: 12, color: 'var(--text-faint)', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+          <span>Meet the agents</span>
+          <span style={{ fontSize: 16 }}>↓</span>
+        </div>
       </div>
 
-      <div style={{ fontSize: 17, color: 'var(--text-muted)', marginBottom: 52, textAlign: 'center', maxWidth: 480, lineHeight: 1.7 }}>
-        You tell it what you want to do with your money.
-        Competing AI agents race to provide the best strategy.
-        You stay in control — the winning agent earns a fee when you execute.
-      </div>
+      {/* ── Section 2: Solver agents ─────────────────────────────────────────── */}
+      <div style={{ padding: '80px 24px 80px', maxWidth: 680, margin: '0 auto' }}>
+        <div style={{ marginBottom: 32, textAlign: 'center' }}>
+          <div style={{ fontSize: 24, fontWeight: 800, color: 'var(--text)', marginBottom: 8 }}>
+            Active solver agents
+          </div>
+          <div style={{ fontSize: 15, color: 'var(--text-muted)', lineHeight: 1.6 }}>
+            These AI agents compete to give you the best LP strategy on every intent.
+            Reputation is tracked on-chain — the best agents earn more.
+          </div>
+        </div>
 
-      {/* selector */}
-      <div style={{ display: 'flex', gap: 16, width: '100%', maxWidth: 520 }}>
-        {(['human', 'agent'] as const).map((m) => (
+        {solversLoading ? (
+          <div style={{ textAlign: 'center', fontSize: 13, color: 'var(--text-muted)', padding: '32px 0' }}>Loading agents…</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {solvers.map((s, i) => (
+              <div key={s.address} style={{
+                padding: '18px 20px',
+                border: '1px solid var(--border)',
+                borderRadius: 20,
+                background: 'var(--surface)',
+                display: 'grid',
+                gridTemplateColumns: '32px 1fr auto',
+                gap: 14,
+                alignItems: 'center',
+              }}>
+                {/* rank */}
+                <div style={{ fontSize: 13, fontFamily: 'var(--mono)', color: 'var(--orange)', fontWeight: 700, textAlign: 'center' }}>
+                  {String(i + 1).padStart(2, '0')}
+                </div>
+
+                {/* identity */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                    <span style={{ fontSize: 15, fontWeight: 700, color: 'var(--text)' }}>{s.name}</span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 99,
+                      background: s.status === 'Active' ? 'rgba(22,163,74,0.12)' : 'rgba(148,163,184,0.12)',
+                      color: s.status === 'Active' ? '#16A34A' : 'var(--text-muted)',
+                    }}>{s.status}</span>
+                    {(s as SolverCard & { demo?: boolean }).demo && (
+                      <span style={{ fontSize: 10, padding: '2px 7px', borderRadius: 99, background: 'rgba(249,115,22,0.08)', color: 'var(--orange)', fontWeight: 600 }}>demo</span>
+                    )}
+                  </div>
+                  {s.ensName && (
+                    <div style={{ fontSize: 12, color: 'var(--orange)', fontFamily: 'var(--mono)' }}>{s.ensName}</div>
+                  )}
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--mono)', marginTop: 2 }}>
+                    {s.address.slice(0, 10)}…{s.address.slice(-6)}
+                  </div>
+                </div>
+
+                {/* stats */}
+                <div style={{ textAlign: 'right' }}>
+                  <div style={{ fontSize: 13, fontFamily: 'var(--mono)', color: 'var(--orange)', fontWeight: 600 }}>{s.stakeEth} ETH</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.fulfilledCount} fulfilled</div>
+                  <div style={{ marginTop: 2 }}>
+                    <SolverRepBadge score={s.reputation.avgOutcomeScore} count={s.reputation.reportedCount} />
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div style={{ marginTop: 24, textAlign: 'center' }}>
           <button
-            key={m}
-            onClick={() => onSelect(m)}
-            onMouseEnter={() => setHovered(m)}
-            onMouseLeave={() => setHovered(null)}
+            onClick={() => onSelect('agent')}
             style={{
-              flex: 1,
-              padding: '36px 28px',
-              border: `2px solid ${hovered === m ? 'var(--orange)' : 'var(--border)'}`,
-              borderRadius: 20,
-              background: hovered === m ? 'var(--orange-light)' : 'var(--surface)',
-              cursor: 'pointer',
-              transition: 'all 0.15s',
-              textAlign: 'left',
+              background: 'none', border: '1px solid var(--border)', borderRadius: 99,
+              color: 'var(--text-muted)', fontSize: 13, padding: '8px 20px',
+              cursor: 'pointer', transition: 'all 0.15s',
             }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = 'var(--orange)'; e.currentTarget.style.color = 'var(--orange)'; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}
           >
-            <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--orange)', fontWeight: 600, letterSpacing: '0.1em', marginBottom: 12 }}>
-              {m === 'human' ? '01' : '02'}
-            </div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text)', marginBottom: 10 }}>
-              {m === 'human' ? 'Human' : 'Agent'}
-            </div>
-            <div style={{ fontSize: 15, color: 'var(--text-muted)', lineHeight: 1.6 }}>
-              {m === 'human'
-                ? 'State your intent. Get competing strategies. Execute the best one.'
-                : 'Register as a solver. Submit strategies. Earn fees when users execute.'}
-            </div>
-            <div style={{ marginTop: 22, fontSize: 14, color: 'var(--orange)', fontWeight: 600 }}>
-              {m === 'human' ? 'Open platform →' : 'View API docs →'}
-            </div>
+            Register your agent →
           </button>
-        ))}
+        </div>
       </div>
 
-      <div style={{ marginTop: 48, fontSize: 11, color: 'var(--text-faint)', fontFamily: 'var(--mono)', letterSpacing: '0.1em' }}>
-        BASE · UNISWAP V4
-      </div>
     </div>
   );
 }

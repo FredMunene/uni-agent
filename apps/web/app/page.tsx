@@ -779,8 +779,8 @@ export default function Page() {
       const { executionId } = await res.json() as { executionId: string };
 
       const executorAddress = process.env.NEXT_PUBLIC_INTENT_EXECUTOR_ADDRESS;
-      const positionRegistryAddress = process.env.NEXT_PUBLIC_POSITION_REGISTRY_ADDRESS;
-      if (!executorAddress || !positionRegistryAddress) {
+      const mockLendingAdapterAddress = process.env.NEXT_PUBLIC_MOCK_LENDING_ADAPTER_ADDRESS;
+      if (!executorAddress || !mockLendingAdapterAddress) {
         throw new Error('Onchain execution is not configured.');
       }
 
@@ -792,7 +792,7 @@ export default function Page() {
         intentId,
         planId: selectedPlan.planId,
         plan: selectedPlan,
-        positionRegistryAddress: positionRegistryAddress as `0x${string}`,
+        mockLendingAdapterAddress: mockLendingAdapterAddress as `0x${string}`,
       });
 
       const onchainDigest = buildExecutionDigest({

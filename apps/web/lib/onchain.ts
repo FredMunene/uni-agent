@@ -127,12 +127,27 @@ export function buildExecutionDigest(input: {
 // Build execution steps and compute the on-chain plan hash.
 // Must be called BEFORE signing so the digest uses the correct planHash.
 // The on-chain check is: keccak256(abi.encode(steps)) == planHash
+// MockLendingAdapter.borrow() — no-op demo step, always succeeds, allowlisted in IntentExecutor
+const mockLendingAdapterAbi = [
+  {
+    type: 'function',
+    name: 'borrow',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'token',     type: 'address' },
+      { name: 'amount',    type: 'uint256' },
+      { name: 'receiver',  type: 'address' },
+    ],
+    outputs: [],
+  },
+] as const;
+
 export function buildExecutionSteps(input: {
-  userAddress:             Address;
-  intentId:                string;
-  planId:                  string;
-  plan:                    Plan;
-  positionRegistryAddress: Address;
+  userAddress:                Address;
+  intentId:                   string;
+  planId:                     string;
+  plan:                       Plan;
+  mockLendingAdapterAddress:  Address;
 }) {
   const positionId = keccak256(
     encodeAbiParameters(
@@ -158,20 +173,20 @@ export function buildExecutionSteps(input: {
     createdAt: BigInt(Math.floor(Date.now() / 1000)),
   };
 
-  // Testnet demo step: record the predicted LP position on the deployed PositionRegistry.
-  // This is a real Base Sepolia contract call, but still not the final Uniswap swap/mint path.
+  // Testnet demo step: MockLendingAdapter.borrow() is a no-op allowlisted in IntentExecutor.
+  // PositionRegistry.recordPosition reverts (deployed with address(0) executor) so we use this instead.
   const steps: ExecutionStep[] = [
     {
       stepType:     1,
-      target:       input.positionRegistryAddress,
+      target:       input.mockLendingAdapterAddress,
       tokenIn:      zeroAddress,
       tokenOut:     zeroAddress,
       amountIn:     0n,
       minAmountOut: 0n,
       callData:     encodeFunctionData({
-        abi: positionRegistryAbi,
-        functionName: 'recordPosition',
-        args: [positionId, position],
+        abi: mockLendingAdapterAbi,
+        functionName: 'borrow',
+        args: [BASE_SEPOLIA.USDC as Address, 0n, input.userAddress],
       }),
     },
   ];

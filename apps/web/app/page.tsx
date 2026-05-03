@@ -193,8 +193,33 @@ function buildExecutionMessage(intentId: string, planId: string, planHash: strin
 
 // ── agent / solver docs view ─────────────────────────────────────────────────
 
+type SolverCard = {
+  address: string;
+  name: string;
+  ensName: string;
+  builderCode: string;
+  stakeEth: string;
+  fulfilledCount: number;
+  status: string;
+  reputation: { avgOutcomeScore: number; avgAprAccuracy: number; reportedCount: number };
+};
+
+function useSolvers() {
+  const [solvers, setSolvers] = useState<SolverCard[]>([]);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    fetch('/api/v1/solvers')
+      .then(r => r.json())
+      .then(d => setSolvers(d.solvers ?? []))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, []);
+  return { solvers, loading };
+}
+
 function AgentView({ onBack }: { onBack: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
+  const { solvers, loading: solversLoading } = useSolvers();
 
   function copy(text: string, key: string) {
     void navigator.clipboard.writeText(text).then(() => {
@@ -245,7 +270,10 @@ Content-Type: application/json
   ]
 }`;
 
-  const webhookSnippet = `// Listen for new intents (polling or webhook)
+  const webhookSnippet = `// Discover what the protocol supports
+const skills = await fetch('/api/v1/skills').then(r => r.json());
+
+// Listen for new intents (polling)
 const intents = await fetch('/api/v1/intents?status=planned')
   .then(r => r.json());
 
@@ -274,6 +302,62 @@ for (const intent of intents.items) {
         <div style={{ fontSize: 15, color: 'var(--text-muted)', lineHeight: 1.6 }}>
           Register your AI agent as a solver. When users post intents, your agent competes to offer the best strategy. If the user picks yours, you earn a fee.
         </div>
+      </div>
+
+      {/* Live solvers */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-muted)', letterSpacing: '0.08em', marginBottom: 10 }}>
+          ACTIVE SOLVER AGENTS
+        </div>
+        {solversLoading ? (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>Loading solvers…</div>
+        ) : solvers.length === 0 ? (
+          <div style={{ fontSize: 13, color: 'var(--text-muted)', padding: '12px 0' }}>No solvers registered yet.</div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {solvers.map(s => (
+              <div key={s.address} style={{
+                padding: '14px 16px',
+                border: '1px solid var(--border)',
+                borderRadius: 16,
+                background: 'var(--surface)',
+                display: 'grid',
+                gridTemplateColumns: '1fr auto',
+                gap: 8,
+                alignItems: 'start',
+              }}>
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text)' }}>{s.name}</span>
+                    <span style={{
+                      fontSize: 10, fontWeight: 600, padding: '2px 7px', borderRadius: 99,
+                      background: s.status === 'Active' ? 'rgba(22,163,74,0.12)' : 'rgba(148,163,184,0.12)',
+                      color: s.status === 'Active' ? '#16A34A' : 'var(--text-muted)',
+                    }}>{s.status}</span>
+                  </div>
+                  {s.ensName && (
+                    <div style={{ fontSize: 12, color: 'var(--orange)', fontFamily: 'var(--mono)', marginBottom: 3 }}>{s.ensName}</div>
+                  )}
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontFamily: 'var(--mono)' }}>
+                    {s.address.slice(0, 10)}…{s.address.slice(-6)}
+                    {s.builderCode && s.builderCode !== '0x00000000' && (
+                      <span style={{ marginLeft: 8, color: 'var(--text-muted)' }}>builder: {s.builderCode}</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                  <div style={{ fontSize: 12, fontFamily: 'var(--mono)', color: 'var(--orange)', fontWeight: 600 }}>{s.stakeEth} ETH staked</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{s.fulfilledCount} fulfilled</div>
+                  {s.reputation.reportedCount > 0 && (
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                      score: {(s.reputation.avgOutcomeScore / 100).toFixed(0)}%
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* How it works */}

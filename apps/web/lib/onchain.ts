@@ -152,8 +152,8 @@ export function buildExecutionSteps(input: {
     chainId:   BigInt(EXECUTION_CHAIN_ID),
     token0:    BASE_SEPOLIA.USDC as Address,
     token1:    BASE_SEPOLIA.WETH as Address,
-    amount0:   BigInt((addLiquidityStep as any)?.token0AmountIn ?? (firstStep as any)?.amountIn ?? '0'),
-    amount1:   BigInt((addLiquidityStep as any)?.token1AmountIn ?? (firstStep as any)?.estimatedAmountOut ?? '0'),
+    amount0:   BigInt((addLiquidityStep as any)?.token0AmountIn || (firstStep as any)?.amountIn || '0'),
+    amount1:   BigInt((addLiquidityStep as any)?.token1AmountIn || (firstStep as any)?.estimatedAmountOut || '0'),
     liquidity: 1_000_000n,
     createdAt: BigInt(Math.floor(Date.now() / 1000)),
   };

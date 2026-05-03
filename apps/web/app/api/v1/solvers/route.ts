@@ -9,10 +9,59 @@ const client = createPublicClient({
   transport: http(process.env.RPC_BASE_SEPOLIA ?? 'https://sepolia.base.org'),
 });
 
-// Solvers mapping is not enumerable on-chain — seed with known addresses.
-// The Gemini solver is always the deployer; additional solvers extend this list.
-const KNOWN_SOLVER_ADDRESSES: Address[] = [
+type SolverEntry = {
+  address: string;
+  name: string;
+  ensName: string;
+  builderCode: string;
+  stakeEth: string;
+  fulfilledCount: number;
+  status: string;
+  demo?: boolean;
+  reputation: { reportedCount: number; avgOutcomeScore: number; avgAprAccuracy: number; avgInRangeBps: number };
+};
+
+// On-chain addresses to read live. Add new solver addresses here as they register.
+const ONCHAIN_ADDRESSES: Address[] = [
   '0x8bD204E42a3Ae3B62ea7Da8a9b4e607C2f3Dbb56', // gemini-lp (built-in solver)
+];
+
+// Demo solver entries shown alongside live on-chain data.
+// These represent the open solver marketplace — replace with real registrants over time.
+const DEMO_SOLVERS: SolverEntry[] = [
+  {
+    address: '0x3fC91A3afd70395Cd496C647d5a6CC9D4B2b7FAD',
+    name: 'Claude LP Agent',
+    ensName: 'claude-lp.solvers.uni-agent.eth',
+    builderCode: '0xC1A1C1A1',
+    stakeEth: '0.0010',
+    fulfilledCount: 12,
+    status: 'Active',
+    demo: true,
+    reputation: { reportedCount: 10, avgOutcomeScore: 8750, avgAprAccuracy: 9100, avgInRangeBps: 8400 },
+  },
+  {
+    address: '0x7a250d5630B4cF539739dF2C5dAcb4c659F2488D',
+    name: 'GPT-4o Yield Bot',
+    ensName: 'gpt4-yield.solvers.uni-agent.eth',
+    builderCode: '0x6F707434',
+    stakeEth: '0.0010',
+    fulfilledCount: 7,
+    status: 'Active',
+    demo: true,
+    reputation: { reportedCount: 6, avgOutcomeScore: 7900, avgAprAccuracy: 8200, avgInRangeBps: 7600 },
+  },
+  {
+    address: '0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045',
+    name: 'DeepSeek Range Optimizer',
+    ensName: 'deepseek-range.solvers.uni-agent.eth',
+    builderCode: '0xD33F5EEE',
+    stakeEth: '0.0010',
+    fulfilledCount: 3,
+    status: 'Active',
+    demo: true,
+    reputation: { reportedCount: 2, avgOutcomeScore: 8100, avgAprAccuracy: 7800, avgInRangeBps: 8500 },
+  },
 ];
 
 const solverAbi = [
@@ -48,48 +97,48 @@ const solverAbi = [
 const STATUS_LABEL = ['Inactive', 'Active', 'Pending Withdrawal'];
 
 export async function GET() {
-  if (!registryAddress) {
-    return NextResponse.json({ solvers: [] });
+  // Read live on-chain solvers
+  const liveResults = registryAddress
+    ? await Promise.allSettled(
+        ONCHAIN_ADDRESSES.map(async (address) => {
+          const [solver, rep] = await Promise.all([
+            client.readContract({ address: registryAddress, abi: solverAbi, functionName: 'solvers', args: [address] }),
+            client.readContract({ address: registryAddress, abi: solverAbi, functionName: 'reputation', args: [address] }),
+          ]);
+          return {
+            address,
+            name:         solver[1],
+            ensName:      solver[2],
+            builderCode:  solver[3],
+            stakeEth:     (Number(solver[5]) / 1e18).toFixed(4),
+            fulfilledCount: Number(solver[6]),
+            status:       STATUS_LABEL[solver[8]] ?? 'Unknown',
+            reputation: {
+              reportedCount:   Number(rep[0]),
+              avgOutcomeScore: Number(rep[1]),
+              avgAprAccuracy:  Number(rep[2]),
+              avgInRangeBps:   Number(rep[3]),
+            },
+          } as SolverEntry;
+        }),
+      )
+    : [];
+
+  const liveAddresses = new Set<string>();
+  const liveSolvers: SolverEntry[] = [];
+
+  for (const r of liveResults) {
+    if (r.status === 'fulfilled' && r.value.name) {
+      liveSolvers.push(r.value);
+      liveAddresses.add(r.value.address.toLowerCase());
+    }
   }
 
-  const results = await Promise.allSettled(
-    KNOWN_SOLVER_ADDRESSES.map(async (address) => {
-      const [solver, rep] = await Promise.all([
-        client.readContract({ address: registryAddress, abi: solverAbi, functionName: 'solvers', args: [address] }),
-        client.readContract({ address: registryAddress, abi: solverAbi, functionName: 'reputation', args: [address] }),
-      ]);
+  // Merge demo solvers for addresses not already returned from chain
+  const demoSolvers = DEMO_SOLVERS.filter(s => !liveAddresses.has(s.address.toLowerCase()));
 
-      return {
-        address,
-        name:         solver[1],
-        ensName:      solver[2],
-        builderCode:  solver[3],
-        endpoint:     solver[4],
-        stakeEth:     (Number(solver[5]) / 1e18).toFixed(4),
-        fulfilledCount: Number(solver[6]),
-        status:       STATUS_LABEL[solver[8]] ?? 'Unknown',
-        reputation: {
-          reportedCount:   Number(rep[0]),
-          avgOutcomeScore: Number(rep[1]),
-          avgAprAccuracy:  Number(rep[2]),
-          avgInRangeBps:   Number(rep[3]),
-        },
-      };
-    }),
+  return NextResponse.json(
+    { solvers: [...liveSolvers, ...demoSolvers] },
+    { headers: { 'Access-Control-Allow-Origin': '*' } },
   );
-
-  type SolverResult = {
-    address: Address; name: string; ensName: string; builderCode: string;
-    endpoint: string; stakeEth: string; fulfilledCount: number; status: string;
-    reputation: { reportedCount: number; avgOutcomeScore: number; avgAprAccuracy: number; avgInRangeBps: number };
-  };
-
-  const solvers = (results as PromiseSettledResult<SolverResult>[])
-    .filter((r): r is PromiseFulfilledResult<SolverResult> => r.status === 'fulfilled')
-    .map(r => r.value)
-    .filter(s => s.name); // skip unregistered addresses
-
-  return NextResponse.json({ solvers }, {
-    headers: { 'Access-Control-Allow-Origin': '*' },
-  });
 }

@@ -1,0 +1,81 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">
+  <!-- Background -->
+  <rect width="640" height="360" fill="#0a0a0a"/>
+
+  <!-- Left orange accent bar -->
+  <rect x="0" y="0" width="6" height="360" fill="#f97316"/>
+
+  <!-- Top-right faint hexagon decoration -->
+  <polygon
+    points="580,20 630,48 630,104 580,132 530,104 530,48"
+    fill="none"
+    stroke="#f97316"
+    stroke-width="2"
+    stroke-opacity="0.2"
+  />
+  <!-- Smaller hex inside -->
+  <polygon
+    points="580,44 610,60 610,92 580,108 550,92 550,60"
+    fill="none"
+    stroke="#f97316"
+    stroke-width="1.5"
+    stroke-opacity="0.12"
+  />
+
+  <!-- Route nodes (mini version, left-center) -->
+  <circle cx="80" cy="200" r="7" fill="#f97316"/>
+  <circle cx="120" cy="200" r="7" fill="#ffffff"/>
+  <circle cx="100" cy="228" r="7" fill="#f97316"/>
+  <line x1="87" y1="200" x2="113" y2="200" stroke="#f97316" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="83" y1="207" x2="95" y2="221" stroke="#f97316" stroke-width="2.5" stroke-linecap="round"/>
+  <line x1="117" y1="207" x2="105" y2="221" stroke="#ffffff" stroke-width="2.5" stroke-linecap="round" stroke-opacity="0.4"/>
+  <polygon points="100,242 94,230 106,230" fill="#f97316"/>
+
+  <!-- Horizontal divider line -->
+  <line x1="40" y1="150" x2="600" y2="150" stroke="#f97316" stroke-width="1" stroke-opacity="0.15"/>
+
+  <!-- Main title -->
+  <text
+    x="160"
+    y="210"
+    font-family="'Courier New', Courier, monospace"
+    font-size="54"
+    font-weight="700"
+    fill="#ffffff"
+    letter-spacing="3"
+  >UNI-AGENT</text>
+
+  <!-- Subtitle -->
+  <text
+    x="160"
+    y="248"
+    font-family="'Courier New', Courier, monospace"
+    font-size="16"
+    fill="#f97316"
+    letter-spacing="2"
+  >AGENTIC STABLECOIN POSITION ROUTER</text>
+
+  <!-- Bottom tag line -->
+  <text
+    x="160"
+    y="286"
+    font-family="'Courier New', Courier, monospace"
+    font-size="13"
+    fill="#4a4a4a"
+    letter-spacing="1"
+  >Swap + Uniswap v4 LP on Base · Powered by Gemini</text>
+
+  <!-- Bottom orange accent line -->
+  <rect x="0" y="350" width="640" height="4" fill="#f97316" opacity="0.6"/>
+
+  <!-- ETHGlobal tag (top-left) -->
+  <text
+    x="24"
+    y="36"
+    font-family="'Courier New', Courier, monospace"
+    font-size="12"
+    fill="#f97316"
+    letter-spacing="2"
+    opacity="0.7"
+  >ETHGlobal Open Agent 2026</text>
+</svg>

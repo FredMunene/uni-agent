@@ -13,6 +13,7 @@
     "@rainbow-me/rainbowkit": "^2.2.0",
     "@tanstack/react-query": "^5.56.0",
     "@uni-agent/shared": "*",
+    "@upstash/redis": "^1.37.0",
     "nanoid": "^5.1.9",
     "next": "^15.3.0",
     "react": "^19.0.0",

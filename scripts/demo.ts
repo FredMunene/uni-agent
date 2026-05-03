@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import { randomBytes } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import assert from 'node:assert/strict';

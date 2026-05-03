@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <!-- Background -->
+  <rect width="512" height="512" fill="#0a0a0a"/>
+
+  <!-- Hexagon outline -->
+  <polygon
+    points="256,60 430,158 430,354 256,452 82,354 82,158"
+    fill="none"
+    stroke="#f97316"
+    stroke-width="10"
+  />
+
+  <!-- Node 1 (left) -->
+  <circle cx="172" cy="256" r="16" fill="#f97316"/>
+  <!-- Node 2 (right) -->
+  <circle cx="340" cy="256" r="16" fill="#ffffff"/>
+  <!-- Node 3 (bottom-center) -->
+  <circle cx="256" cy="340" r="16" fill="#f97316"/>
+
+  <!-- Connecting lines -->
+  <line x1="188" y1="256" x2="324" y2="256" stroke="#f97316" stroke-width="4" stroke-linecap="round"/>
+  <line x1="180" y1="268" x2="248" y2="328" stroke="#f97316" stroke-width="4" stroke-linecap="round"/>
+  <line x1="332" y1="268" x2="268" y2="328" stroke="#ffffff" stroke-width="4" stroke-linecap="round" stroke-opacity="0.4"/>
+
+  <!-- Arrow pointing down from bottom node -->
+  <polygon points="256,368 244,346 268,346" fill="#f97316"/>
+</svg>
